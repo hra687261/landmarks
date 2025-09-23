@@ -6,7 +6,7 @@ let zero_alloc = L.register name
 
 let () =
   L.start_profiling
-    ~profiling_options:{ L.default_options with allocated_bytes = true }
+    ~profiling_options:{ L.Options.default with allocated_bytes = true }
     ();
   L.enter zero_alloc;
   L.exit zero_alloc

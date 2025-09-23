@@ -2,7 +2,7 @@
  (public_name landmarks)
  ;; TODO: remove later, used for cleaning
  ;;(libraries prelude)
- (modules graph json landmarks node sparse_array stack)
+ (modules graph json landmarks node options sparse_array stack)
  (private_modules json sparse_array stack)
  (no_dynlink)
  (flags

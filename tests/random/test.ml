@@ -1,9 +1,10 @@
 module L = Landmarks
 
 let () =
-  if not (L.profiling ()) then begin
+  if not (L.Options.ongoing ()) then begin
     let profiling_options =
-      { L.default_options with L.output = L.Channel stderr; L.format = L.JSON }
+      let open L.Options in
+      { default with output = Channel stderr; format = JSON }
     in
     L.start_profiling ~profiling_options ()
   end
@@ -193,24 +194,18 @@ let () =
 open Landmarks
 open Graph
 
-let group_by ?(equals = (=)) l =
+let group_by ?(equals = ( = )) l =
   let rec aux cur stk acc = function
     | [] -> List.rev (stk :: acc)
-    | hd::tl when equals cur hd ->
-        aux cur (hd :: stk) acc tl
-    | hd::tl ->
-        aux hd [hd] ((List.rev stk) :: acc) tl
+    | hd :: tl when equals cur hd -> aux cur (hd :: stk) acc tl
+    | hd :: tl -> aux hd [ hd ] (List.rev stk :: acc) tl
   in
-  match l with
-  | [] -> []
-  | hd :: tl -> aux hd [hd] [] tl
+  match l with [] -> [] | hd :: tl -> aux hd [ hd ] [] tl
 
 let rec choose f = function
   | [] -> []
-  | hd :: tl ->
-      match f hd with
-      | Some x -> x :: (choose f tl)
-      | None -> choose f tl
+  | hd :: tl -> (
+    match f hd with Some x -> x :: choose f tl | None -> choose f tl )
 
 let duplicated_elements proj l =
   List.sort (fun x y -> compare (proj x) (proj y)) l
@@ -224,7 +219,9 @@ let duplicated_elements ?proj l =
 
 let check_invariants graph =
   let root = root graph in
-  let roots = List.find_all (fun (node : Node.t) -> node.id = root.id) (nodes graph) in
+  let roots =
+    List.find_all (fun (node : Node.t) -> node.id = root.id) (nodes graph)
+  in
   assert (roots = [ root ]);
   (* only one root *)
   List.iter

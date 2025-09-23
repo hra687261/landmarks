@@ -4,32 +4,7 @@
 
 module Node = Node
 module Graph = Graph
-
-let split c s =
-  let open String in
-  let res = ref [] in
-  let pos = ref 0 in
-  let len = length s in
-  while
-    match index_from_opt s !pos c with
-    | None ->
-      res := sub s !pos (len - !pos) :: !res;
-      false
-    | Some k ->
-      res := sub s !pos (k - !pos) :: !res;
-      pos := k + 1;
-      !pos < len
-      ||
-      ( res := "" :: !res;
-        false )
-  do
-    ()
-  done;
-  List.rev !res
-
-let starts_with ~prefix x =
-  let n = String.length prefix in
-  String.length x >= n && String.equal prefix (String.sub x 0 n)
+module Options = Options
 
 external clock : unit -> (Int64.t[@unboxed])
   = "caml_highres_clock" "caml_highres_clock_native"
@@ -88,9 +63,9 @@ and landmark_key =
   ; landmark : landmark
   }
 
-and counter = landmark
+type counter = landmark
 
-and sampler = landmark
+type sampler = landmark
 
 let new_floats () =
   { time = 0.0
@@ -125,36 +100,7 @@ and dummy_node =
   ; timestamp = Int64.zero
   }
 
-and dummy_key = { key = ""; landmark = landmark_root }
-
-(** STATE **)
-
-type profile_output =
-  | Silent
-  | Temporary of string option
-  | Channel of out_channel
-
-type textual_option = { threshold : float }
-
-type profile_format =
-  | JSON
-  | Textual of textual_option
-
-let profiling_ref = ref false
-
-let profile_with_debug = ref false
-
-let profile_with_allocated_bytes = ref false
-
-let profile_with_sys_time = ref false
-
-let profile_output = ref Silent
-
-let profile_format = ref (Textual { threshold = 1.0 })
-
-let profile_recursive = ref false
-
-let profiling () = !profiling_ref
+let dummy_key = { key = ""; landmark = landmark_root }
 
 (** REGISTERING **)
 
@@ -200,7 +146,7 @@ let node_id_ref = ref 0
 let allocated_nodes = ref []
 
 let new_node landmark =
-  if !profile_with_debug then
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] Allocating new node for %s...\n%!" landmark.name;
   let id = !node_id_ref in
   incr node_id_ref;
@@ -228,7 +174,7 @@ let landmark_of_node ({ landmark_id = key; name; location; kind; _ } : Node.t) =
 
 let register_generic ~id ~name ~location ~kind () =
   let landmark = new_landmark ~key:id ~name ~location ~kind () in
-  if !profile_with_debug then
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] registering(%s)\n%!" name;
   landmark
 
@@ -269,11 +215,11 @@ let cache_miss_ref = ref 0
 
 let stamp_root () =
   !current_root_node.timestamp <- clock ();
-  if !profile_with_allocated_bytes then begin
+  if Options.with_allocated_bytes () then begin
     !current_root_node.floats.allocated_bytes <- allocated_bytes ();
     !current_root_node.floats.allocated_bytes_major <- allocated_bytes_major ()
   end;
-  if !profile_with_sys_time then
+  if Options.with_sys_time () then
     !current_root_node.floats.sys_time <- Sys.time ()
 
 let clear_cache () =
@@ -284,17 +230,17 @@ let clear_cache () =
   in
   iter_registered_landmarks reset_landmark
 
+type node_info =
+  { node : node
+  ; recursive : bool
+  }
+
 type profiling_state =
   { root : node
   ; nodes : node_info list
   ; nodes_len : int
   ; current : node
   ; cache_miss : int
-  }
-
-and node_info =
-  { node : node
-  ; recursive : bool
   }
 
 let profiling_stack =
@@ -309,7 +255,7 @@ let profiling_stack =
   Stack.make Array dummy 7
 
 let reset () =
-  if !profile_with_debug then Printf.eprintf "[Profiling] resetting ...\n%!";
+  if Options.with_debug () then Printf.eprintf "[Profiling] resetting ...\n%!";
   (* reset dummy_node *)
   let floats = !current_root_node.floats in
   floats.time <- 0.0;
@@ -328,7 +274,7 @@ let reset () =
 let () = reset ()
 
 let push_profiling_state () =
-  if !profile_with_debug then
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] Push profiling state ....\n%!";
   let state =
     let node_info node =
@@ -382,7 +328,7 @@ let unroll_until node =
 let landmark_failure msg =
   unroll_until !current_root_node;
   if !current_node_ref != !current_root_node then reset ();
-  if !profile_with_debug then (
+  if Options.with_debug () then (
     Printf.eprintf "Landmark error: %s\n%!" msg;
     Stdlib.exit 2 )
   else raise (LandmarkFailure msg)
@@ -417,33 +363,34 @@ let increment ?(times = 1) counter =
   let node = get_entering_node counter in
   node.calls <- node.calls + times
 
-let increment ?times counter = if !profiling_ref then increment ?times counter
+let increment ?times counter =
+  if Options.ongoing () then increment ?times counter
 
 let sample sampler x =
   let node = get_entering_node sampler in
   node.calls <- node.calls + 1;
   Stack.push node.distrib x
 
-let sample sampler x = if !profiling_ref then sample sampler x
+let sample sampler x = if Options.ongoing () then sample sampler x
 
 let enter landmark =
-  if !profile_with_debug then
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] enter%s(%s)\n%!"
       (if landmark.last_self != dummy_node then " recursive " else "")
       landmark.name;
 
-  if landmark.last_self == dummy_node || !profile_recursive then begin
+  if landmark.last_self == dummy_node || Options.recursive () then begin
     let node = get_entering_node landmark in
     node.calls <- node.calls + 1;
     Stack.push node.fathers !current_node_ref;
     current_node_ref := node;
     landmark.last_self <- node;
     node.timestamp <- clock ();
-    if !profile_with_allocated_bytes then begin
+    if Options.with_allocated_bytes () then begin
       node.floats.allocated_bytes_stamp <- allocated_bytes ();
       node.floats.allocated_bytes_major_stamp <- allocated_bytes_major ()
     end;
-    if !profile_with_sys_time then node.floats.sys_timestamp <- Sys.time ()
+    if Options.with_sys_time () then node.floats.sys_timestamp <- Sys.time ()
   end
   else begin
     let last_self = landmark.last_self in
@@ -472,7 +419,7 @@ let aggregate_stat_for current_node =
   let floats = current_node.floats in
   floats.time <-
     (floats.time +. Int64.(to_float (sub (clock ()) current_node.timestamp)));
-  if !profile_with_allocated_bytes then begin
+  if Options.with_allocated_bytes () then begin
     floats.allocated_bytes <-
       floats.allocated_bytes
       + (allocated_bytes () - floats.allocated_bytes_stamp);
@@ -480,17 +427,17 @@ let aggregate_stat_for current_node =
       floats.allocated_bytes_major
       + (allocated_bytes_major () - floats.allocated_bytes_major_stamp)
   end;
-  if !profile_with_sys_time then
+  if Options.with_sys_time () then
     floats.sys_time <- floats.sys_time +. (Sys.time () -. floats.sys_timestamp)
 
 let exit landmark =
-  if !profile_with_debug then
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] exit%s(%s)\n%!"
       (if landmark.last_self != !current_node_ref then " recursive " else "")
       landmark.name;
   let current_node = !current_node_ref in
   let last_self = landmark.last_self in
-  if last_self.recursive_calls = 0 || !profile_recursive then begin
+  if last_self.recursive_calls = 0 || Options.recursive () then begin
     mismatch_recovering landmark current_node;
     if Stack.size current_node.fathers = 1 then begin
       landmark.last_self <- dummy_node;
@@ -498,13 +445,13 @@ let exit landmark =
     end;
     current_node_ref := get_exiting_node current_node
   end
-  else if not !profile_recursive then
+  else if not @@ Options.recursive () then
     last_self.recursive_calls <- last_self.recursive_calls - 1
 
 (* These two functions should be inlined. *)
-let enter landmark = if !profiling_ref then enter landmark
+let enter landmark = if Options.ongoing () then enter landmark
 
-let exit landmark = if !profiling_ref then exit landmark
+let exit landmark = if Options.ongoing () then exit landmark
 
 (** HELPERS **)
 
@@ -526,56 +473,18 @@ let unsafe_wrap node f x =
   exit node;
   res
 
-(** PROFILERS **)
-
-type profiling_options =
-  { debug : bool
-  ; allocated_bytes : bool
-  ; sys_time : bool
-  ; recursive : bool
-  ; output : profile_output
-  ; format : profile_format
-  }
-
-let default_options =
-  { debug = false
-  ; allocated_bytes = true
-  ; sys_time = false
-  ; recursive = false
-  ; output = Channel stderr
-  ; format = Textual { threshold = 1.0 }
-  }
-
-let set_profiling_options
-  { debug; allocated_bytes; sys_time; output; format; recursive } =
-  profile_with_allocated_bytes := allocated_bytes;
-  profile_with_sys_time := sys_time;
-  profile_with_debug := debug;
-  profile_output := output;
-  profile_format := format;
-  profile_recursive := recursive
-
-let profiling_options () =
-  { debug = !profile_with_debug
-  ; allocated_bytes = !profile_with_allocated_bytes
-  ; sys_time = !profile_with_sys_time
-  ; recursive = !profile_recursive
-  ; output = !profile_output
-  ; format = !profile_format
-  }
-
-let start_profiling ?(profiling_options = default_options) () =
-  if !profiling_ref then
+let start_profiling ?(profiling_options = Options.default) () =
+  if Options.ongoing () then
     failwith "In profiling: it is not allowed to nest profilings.";
-  set_profiling_options profiling_options;
-  if !profile_with_debug then
+  Options.set_current profiling_options;
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] Start profiling %s...\n%!"
-      ( match (!profile_with_allocated_bytes, !profile_with_sys_time) with
+      ( match (Options.with_allocated_bytes (), Options.with_sys_time ()) with
       | true, true -> "with garbage collection statistics and system time"
       | true, false -> "with garbage collection statistics"
       | false, true -> "with system time"
       | false, false -> "" );
-  profiling_ref := true
+  Options.set_ongoing true
 
 let rec exit_until_root () =
   if !current_node_ref != !current_root_node then begin
@@ -585,14 +494,14 @@ let rec exit_until_root () =
   end
 
 let stop_profiling () =
-  if not !profiling_ref then
+  if not @@ Options.ongoing () then
     failwith "In profiling: cannot stop since profiling is not on-going";
   exit_until_root ();
   let current_node = !current_node_ref in
   assert (current_node == !current_root_node);
   aggregate_stat_for current_node;
-  if !profile_with_debug then Printf.eprintf "[Profiling] Stop profiling.\n%!";
-  profiling_ref := false
+  if Options.with_debug () then Printf.eprintf "[Profiling] Stop profiling.\n%!";
+  Options.set_ongoing false
 
 (** EXPORTING / IMPORTING SLAVE PROFILINGS **)
 
@@ -630,7 +539,7 @@ let export ?(label = "") () =
     ; distrib = Stack.to_floatarray distrib
     }
   in
-  if !profiling_ref then begin
+  if Options.ongoing () then begin
     aggregate_stat_for !current_root_node;
     stamp_root ()
   end;
@@ -639,7 +548,7 @@ let export ?(label = "") () =
   { Graph.nodes; label; root = 0 }
 
 let export_and_reset ?label () =
-  let profiling = !profiling_ref in
+  let profiling = Options.ongoing () in
   if profiling then stop_profiling ();
   let res = export ?label () in
   reset ();
@@ -678,17 +587,17 @@ and new_branch parent graph (imported : Node.t) =
   List.iter (new_branch node graph) (Graph.children graph imported)
 
 let merge (graph : Graph.t) =
-  if !profile_with_debug then
+  if Options.with_debug () then
     Printf.eprintf "[Profiling] merging foreign graph\n%!";
   merge_branch !current_root_node graph (Graph.root graph)
 
 let exit_hook () =
-  if !profile_with_debug then Printf.eprintf "[Profiling] exit_hook\n%!";
-  if !profiling_ref then begin
+  if Options.with_debug () then Printf.eprintf "[Profiling] exit_hook\n%!";
+  if Options.ongoing () then begin
     stop_profiling ();
     let label = String.concat " " (Array.to_list Sys.argv) in
     let cg = export ~label () in
-    match (!profile_output, !profile_format) with
+    match (Options.output (), Options.format ()) with
     | Silent, _ -> ()
     | Channel out, Textual { threshold } -> Graph.output ~threshold out cg
     | Channel out, JSON -> Graph.output_json out cg
@@ -707,101 +616,11 @@ let exit_hook () =
 
 let () = Stdlib.at_exit exit_hook
 
-let parse_env_options s =
-  let open Printf in
-  let debug = ref false in
-  let format = ref (Textual { threshold = 1.0 }) in
-  let output = ref (Channel stderr) in
-  let sys_time = ref false in
-  let recursive = ref false in
-  let allocated_bytes = ref false in
-  let split_trim c s = List.map String.trim (split c s) in
-  let warning s = eprintf "[LANDMARKS] %s.\n%!" s in
-  let parse_option s =
-    let invalid_for opt given =
-      warning
-        (sprintf "The argument '%s' in not valid for the option '%s'" given opt)
-    in
-    let expect_no_argument opt =
-      warning (sprintf "The option '%s' expects no argument" opt)
-    in
-    match split_trim '=' s with
-    | [] -> ()
-    | [ "debug" ] -> debug := true
-    | "debug" :: _ -> expect_no_argument "debug"
-    | [ "threshold"; percent ] -> begin
-      match !format with
-      | Textual _ ->
-        let threshold = try Some (float_of_string percent) with _ -> None in
-        begin
-          match threshold with
-          | None ->
-            warning (Printf.sprintf "Unable to parse threshold '%s'" percent)
-          | Some threshold -> format := Textual { threshold }
-        end
-      | _ ->
-        warning
-          (Printf.sprintf
-             "The option threshold only makes sense with the 'textual' format." )
-    end
-    | [ "format"; "textual" ] -> begin
-      match !format with
-      | Textual _ -> ()
-      | _ -> format := Textual { threshold = 1.0 }
-    end
-    | [ "format"; "json" ] -> format := JSON
-    | [ "format"; unknown ] -> invalid_for "format" unknown
-    | [ "output"; "stderr" ] -> output := Channel stderr
-    | [ "output"; "stdout" ] -> output := Channel stdout
-    | [ "output"; temporary ] when starts_with ~prefix:"temporary" temporary ->
-      begin
-      match split_trim ':' temporary with
-      | [ "temporary" ] -> output := Temporary None
-      | [ "temporary"; dir_spec ] -> begin
-        match split_trim '"' dir_spec with
-        | [ ""; dir; "" ] -> output := Temporary (Some dir)
-        | [ dir ] -> output := Temporary (Some dir)
-        | _ -> invalid_for "output" temporary
-      end
-      | _ -> invalid_for "output" temporary
-    end
-    | [ "output"; file_spec ] -> (
-      match split_trim '"' file_spec with
-      | [ ""; file; "" ] | [ file ] -> (
-        try output := Channel (open_out file)
-        with _ -> warning (sprintf "Unable to open '%s'" file) )
-      | _ -> invalid_for "output" file_spec )
-    | [ "time" ] -> sys_time := true
-    | "time" :: _ -> expect_no_argument "time"
-    | [ "recursive" ] -> recursive := true
-    | "recursive" :: _ -> expect_no_argument "recursive"
-    | [ "allocation" ] -> allocated_bytes := true
-    | "allocation" :: _ -> expect_no_argument "allocation"
-    | [ "off" ] -> raise Exit
-    | "off" :: _ -> expect_no_argument "off"
-    | [ "auto" ] | [ "remove" ] | [ "threads" ] ->
-      () (* read by the ppx extension *)
-    | "auto" :: _ -> expect_no_argument "auto"
-    | "remove" :: _ -> expect_no_argument "remove"
-    | "threads" :: _ -> expect_no_argument "threads"
-    | [ "" ] | [ "on" ] | [ "1" ] -> ()
-    | opt :: _ :: _ -> warning (Printf.sprintf "To many '=' after '%s'" opt)
-    | unknown :: _ -> warning (sprintf "Unknown option '%s'" unknown)
-  in
-  List.iter parse_option (split_trim ',' s);
-  { debug = !debug
-  ; allocated_bytes = !allocated_bytes
-  ; sys_time = !sys_time
-  ; output = !output
-  ; format = !format
-  ; recursive = !recursive
-  }
-
 let () =
   match Sys.getenv "OCAML_LANDMARKS" with
   | exception Not_found -> ()
   | str -> (
-    try start_profiling ~profiling_options:(parse_env_options str) ()
+    try start_profiling ~profiling_options:(Options.parse_env str) ()
     with Exit -> () )
 
 external raise : exn -> 'a = "%raise"

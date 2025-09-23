@@ -9,7 +9,7 @@ let main () = Printf.printf "%d\n%!" (f 2)
 let () =
   main ();
   let open Landmarks in
-  if profiling () then begin
+  if Options.ongoing () then begin
     let open Landmarks.Graph in
     let cg = export () in
     let agg = aggregate_landmarks cg in
