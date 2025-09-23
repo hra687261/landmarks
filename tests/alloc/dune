@@ -1,7 +1,7 @@
 (executable
  (name test)
  (modes native)
- (libraries landmark))
+ (libraries landmarks))
 
 (rule
  (ignore-stderr

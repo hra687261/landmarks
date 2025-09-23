@@ -1,4 +1,4 @@
-module L = Landmark
+module L = Landmarks
 
 let () =
   if not (L.profiling ()) then begin
@@ -190,18 +190,48 @@ let () =
     Printf.printf "done (%d nodes).\n%!" res
   end
 
-open Landmark.Graph
+open Landmarks
+open Graph
+
+let group_by ?(equals = (=)) l =
+  let rec aux cur stk acc = function
+    | [] -> List.rev (stk :: acc)
+    | hd::tl when equals cur hd ->
+        aux cur (hd :: stk) acc tl
+    | hd::tl ->
+        aux hd [hd] ((List.rev stk) :: acc) tl
+  in
+  match l with
+  | [] -> []
+  | hd :: tl -> aux hd [hd] [] tl
+
+let rec choose f = function
+  | [] -> []
+  | hd :: tl ->
+      match f hd with
+      | Some x -> x :: (choose f tl)
+      | None -> choose f tl
+
+let duplicated_elements proj l =
+  List.sort (fun x y -> compare (proj x) (proj y)) l
+  |> group_by ~equals:(fun x y -> proj x = proj y)
+  |> choose (function x :: _ :: _ -> Some x | _ -> None)
+
+let duplicated_elements ?proj l =
+  match proj with
+  | Some proj -> duplicated_elements proj l
+  | None -> duplicated_elements (fun x -> x) l
 
 let check_invariants graph =
   let root = root graph in
-  let roots = List.find_all (fun node -> node.id = root.id) (nodes graph) in
+  let roots = List.find_all (fun (node : Node.t) -> node.id = root.id) (nodes graph) in
   assert (roots = [ root ]);
   (* only one root *)
   List.iter
     (fun node ->
       match
-        Landmark__Misc.duplicated_elements
-          ~proj:(fun node -> node.landmark_id)
+        duplicated_elements
+          ~proj:(fun (node : Node.t) -> node.landmark_id)
           (children graph node)
       with
       | _ :: _ -> assert false
@@ -265,7 +295,7 @@ let checks () =
   Printf.printf "Check reachability invariant ...\n%!";
   assert (reachable_landmarks graph = reachable_landmarks aggregated_graph);
   List.iter
-    (fun node ->
+    (fun (node : Node.t) ->
       if node.kind = Sampler then
         assert (node.calls = Float.Array.length node.distrib) )
     (nodes graph)

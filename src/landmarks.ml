@@ -2,6 +2,35 @@
 (* See the attached LICENSE file.                                    *)
 (* Copyright (C) 2000-2025 LexiFi                                    *)
 
+module Node = Node
+module Graph = Graph
+
+let split c s =
+  let open String in
+  let res = ref [] in
+  let pos = ref 0 in
+  let len = length s in
+  while
+    match index_from_opt s !pos c with
+    | None ->
+      res := sub s !pos (len - !pos) :: !res;
+      false
+    | Some k ->
+      res := sub s !pos (k - !pos) :: !res;
+      pos := k + 1;
+      !pos < len
+      ||
+      ( res := "" :: !res;
+        false )
+  do
+    ()
+  done;
+  List.rev !res
+
+let starts_with ~prefix x =
+  let n = String.length prefix in
+  String.length x >= n && String.equal prefix (String.sub x 0 n)
+
 external clock : unit -> (Int64.t[@unboxed])
   = "caml_highres_clock" "caml_highres_clock_native"
 [@@noalloc]
@@ -21,167 +50,20 @@ let allocated_bytes_major () = Int64.to_int (allocated_bytes_major ())
 
 exception LandmarkFailure of string
 
-module Graph = Graph
-
-module SparseArray = struct
-  type 'a t =
-    { mutable keys : int array
-    ; mutable data : 'a array
-    ; mutable size : int
-    }
-
-  (* /!\ Dummy cannot be resized. *)
-  let dummy () = { keys = [||]; data = [||]; size = 0 }
-
-  let make null n =
-    let n = max n 1 in
-    { keys = Array.make n 0; data = Array.make n null; size = 0 }
-
-  let reset sparse_array = sparse_array.size <- 0
-
-  let get t id =
-    let { keys; data; size } = t in
-    let min = ref 0 in
-    let max = ref (size - 1) in
-    while !min < !max do
-      let middle = (!min + !max) / 2 in
-      if Array.unsafe_get keys middle < id then min := middle + 1
-      else max := middle
-    done;
-    let idx = !min in
-    if idx = !max && Array.unsafe_get keys idx = id then
-      Array.unsafe_get data idx
-    else raise Not_found
-
-  let swap a i j =
-    let t = a.(i) in
-    a.(i) <- a.(j);
-    a.(j) <- t
-
-  let values { data; size; _ } =
-    let result = ref [] in
-    for k = 0 to size - 1 do
-      result := data.(k) :: !result
-    done;
-    List.rev !result
-
-  let bubble { keys; data; size } =
-    let pos = ref size in
-    let key = keys.(size) in
-    while
-      let p = !pos in
-      let q = p - 1 in
-      if key < keys.(q) then begin
-        swap keys p q;
-        swap data p q;
-        pos := q;
-        q > 0
-      end
-      else false
-    do
-      ()
-    done
-
-  let is_full { keys; size; _ } = Array.length keys = size
-
-  let resize ({ keys; data; size } as sparse_array) =
-    if is_full sparse_array then begin
-      assert (size > 0);
-      let new_length = (2 * (size + 1)) - 1 in
-      sparse_array.keys <- Array.make new_length 0;
-      sparse_array.data <- Array.make new_length sparse_array.data.(0);
-      Array.blit keys 0 sparse_array.keys 0 size;
-      Array.blit data 0 sparse_array.data 0 size
-    end
-
-  let set sparse_array id node =
-    resize sparse_array;
-    let size = sparse_array.size in
-    sparse_array.keys.(size) <- id;
-    sparse_array.data.(size) <- node;
-    if size > 0 then bubble sparse_array;
-    sparse_array.size <- sparse_array.size + 1
-end
-
-module Stack = struct
-  module A = struct
-    type (_, _) kind =
-      | Array : ('a, 'a array) kind
-      | Float : (float, floatarray) kind
-
-    let empty : type a arr. (a, arr) kind -> arr = function
-      | Array -> [||]
-      | Float -> Float.Array.create 0
-
-    let make : type a arr. (a, arr) kind -> int -> a -> arr =
-     fun kind n null ->
-      match kind with
-      | Array -> Array.make n null
-      | Float -> Float.Array.make n null
-
-    let length : type a arr. (a, arr) kind -> arr -> int =
-     fun kind arr ->
-      match kind with
-      | Array -> Array.length arr
-      | Float -> Float.Array.length arr
-
-    let get : type a arr. (a, arr) kind -> arr -> int -> a =
-     fun kind arr n ->
-      match kind with
-      | Array -> Array.get arr n
-      | Float -> Float.Array.get arr n
-
-    let set : type a arr. (a, arr) kind -> arr -> int -> a -> unit =
-     fun kind arr n ->
-      match kind with
-      | Array -> Array.set arr n
-      | Float -> Float.Array.set arr n
-
-    let blit : type a arr.
-      (a, arr) kind -> arr -> int -> arr -> int -> int -> unit =
-     fun kind src srcpos dst dstpos n ->
-      match kind with
-      | Array -> Array.blit src srcpos dst dstpos n
-      | Float -> Float.Array.blit src srcpos dst dstpos n
-  end
-
-  type ('a, 'arr) t =
-    { kind : ('a, 'arr) A.kind
-    ; mutable data : 'arr
-    ; mutable size : int
-    }
-
-  (* /!\ Dummy cannot be resized. *)
-  let dummy kind = { kind; data = A.empty kind; size = 0 }
-
-  let make kind null n = { kind; data = A.make kind (max 1 n) null; size = 0 }
-
-  let size { size; _ } = size
-
-  let resize ({ kind; size; data } as stack) =
-    if size = A.length kind data then begin
-      assert (size > 0);
-      let new_length = (2 * (size + 1)) - 1 in
-      stack.data <- A.make kind new_length (A.get kind data 0);
-      A.blit kind data 0 stack.data 0 size
-    end
-
-  let push stack x =
-    resize stack;
-    A.set stack.kind stack.data stack.size x;
-    stack.size <- stack.size + 1
-
-  let pop stack =
-    stack.size <- stack.size - 1;
-    A.get stack.kind stack.data stack.size
-
-  let to_floatarray { data; size; _ } = Float.Array.sub data 0 size
-end
+type floats =
+  { mutable time : float
+  ; mutable allocated_bytes : int
+  ; mutable allocated_bytes_stamp : int
+  ; mutable allocated_bytes_major : int
+  ; mutable allocated_bytes_major_stamp : int
+  ; mutable sys_time : float
+  ; mutable sys_timestamp : float
+  }
 
 type landmark =
   { id : int
   ; key : landmark_key
-  ; kind : Graph.kind
+  ; kind : Node.kind
   ; name : string
   ; location : string
   ; mutable last_parent : node
@@ -192,23 +74,13 @@ type landmark =
 and node =
   { landmark : landmark
   ; id : int
-  ; children : node SparseArray.t
+  ; children : node Sparse_array.t
   ; fathers : (node, node array) Stack.t
   ; mutable calls : int
   ; mutable recursive_calls : int
   ; mutable timestamp : Int64.t
   ; distrib : (float, floatarray) Stack.t
   ; floats : floats
-  }
-
-and floats =
-  { mutable time : float
-  ; mutable allocated_bytes : int
-  ; mutable allocated_bytes_stamp : int
-  ; mutable allocated_bytes_major : int
-  ; mutable allocated_bytes_major_stamp : int
-  ; mutable sys_time : float
-  ; mutable sys_timestamp : float
   }
 
 and landmark_key =
@@ -231,7 +103,7 @@ let new_floats () =
   }
 
 let rec landmark_root =
-  { kind = Graph.Root
+  { kind = Node.Root
   ; id = 0
   ; name = "ROOT"
   ; location = __FILE__
@@ -244,7 +116,7 @@ let rec landmark_root =
 and dummy_node =
   { landmark = landmark_root
   ; id = 0
-  ; children = SparseArray.dummy ()
+  ; children = Sparse_array.dummy ()
   ; fathers = Stack.dummy Array
   ; floats = new_floats ()
   ; calls = 0
@@ -291,7 +163,7 @@ let last_landmark_id = ref 1
 module W = Weak.Make (struct
   type t = landmark_key
 
-  let equal (x : landmark_key) (y : landmark_key) = x.key = y.key
+  let equal (x : landmark_key) (y : landmark_key) = String.equal x.key y.key
 
   let hash (x : landmark_key) = Hashtbl.hash x.key
 end)
@@ -337,7 +209,7 @@ let new_node landmark =
     ; id
     ; fathers = Stack.make Array dummy_node 1
     ; distrib = Stack.make Float 0.0 0
-    ; children = SparseArray.make dummy_node 7
+    ; children = Sparse_array.make dummy_node 7
     ; calls = 0
     ; recursive_calls = 0
     ; timestamp = Int64.zero
@@ -349,8 +221,7 @@ let new_node landmark =
 
 let current_root_node = ref (new_node landmark_root)
 
-let landmark_of_node
-  ({ landmark_id = key; name; location; kind; _ } : Graph.node) =
+let landmark_of_node ({ landmark_id = key; name; location; kind; _ } : Node.t) =
   match landmark_of_id key with
   | None -> new_landmark ~key ~name ~kind ~location ()
   | Some landmark -> landmark
@@ -386,11 +257,11 @@ let register_generic ?id ?location kind name =
   register_generic ~id ~location kind name
 
 let register ?id ?location name =
-  register_generic ?id ?location Graph.Normal name
+  register_generic ?id ?location Node.Normal name
 
-let register_counter name = register_generic Graph.Counter name
+let register_counter name = register_generic Node.Counter name
 
-let register_sampler name = register_generic Graph.Sampler name
+let register_sampler name = register_generic Node.Sampler name
 
 let current_node_ref = ref !current_root_node
 
@@ -447,7 +318,7 @@ let reset () =
   !current_root_node.calls <- 0;
   !current_root_node.recursive_calls <- 0;
   stamp_root ();
-  SparseArray.reset !current_root_node.children;
+  Sparse_array.reset !current_root_node.children;
   allocated_nodes := [ !current_root_node ];
   current_node_ref := !current_root_node;
   cache_miss_ref := 0;
@@ -481,7 +352,7 @@ let push_profiling_state () =
   Stack.push profiling_stack state
 
 let pop_profiling_state () =
-  if profiling_stack.size > 0 then (
+  if Stack.size profiling_stack > 0 then (
     let { root; nodes; nodes_len; current; cache_miss } =
       Stack.pop profiling_stack
     in
@@ -526,10 +397,10 @@ let get_entering_node ({ id; _ } as landmark) =
     (* We fetch the son or create it. *)
     let children = current_node.children in
     let son =
-      try SparseArray.get children id
+      try Sparse_array.get children id
       with Not_found ->
         let son = new_node landmark in
-        SparseArray.set current_node.children id son;
+        Sparse_array.set current_node.children id son;
         son
     in
     (* Fill the "cache". *)
@@ -743,9 +614,9 @@ let export ?(label = "") () =
       floats
     in
     let children =
-      List.map (fun ({ id; _ } : node) -> id) (SparseArray.values children)
+      List.map (fun ({ id; _ } : node) -> id) (Sparse_array.values children)
     in
-    { Graph.landmark_id
+    { Node.landmark_id
     ; id
     ; name
     ; location
@@ -775,7 +646,7 @@ let export_and_reset ?label () =
   if profiling then start_profiling ();
   res
 
-let rec merge_branch node graph (imported : Graph.node) =
+let rec merge_branch node graph (imported : Node.t) =
   let floats = node.floats in
   floats.time <- imported.time +. floats.time;
   floats.sys_time <- imported.sys_time +. floats.sys_time;
@@ -787,14 +658,14 @@ let rec merge_branch node graph (imported : Graph.node) =
 
   let children = Graph.children graph imported in
   List.iter
-    (fun (imported_son : Graph.node) ->
+    (fun (imported_son : Node.t) ->
       let landmark = landmark_of_node imported_son in
-      match SparseArray.get node.children landmark.id with
+      match Sparse_array.get node.children landmark.id with
       | exception Not_found -> new_branch node graph imported_son
       | son -> merge_branch son graph imported_son )
     children
 
-and new_branch parent graph (imported : Graph.node) =
+and new_branch parent graph (imported : Node.t) =
   let landmark = landmark_of_node imported in
   let node = new_node landmark in
   node.calls <- imported.calls;
@@ -803,10 +674,10 @@ and new_branch parent graph (imported : Graph.node) =
   floats.allocated_bytes <- imported.allocated_bytes;
   floats.sys_time <- imported.sys_time;
   Float.Array.iter (Stack.push node.distrib) imported.distrib;
-  SparseArray.set parent.children landmark.id node;
+  Sparse_array.set parent.children landmark.id node;
   List.iter (new_branch node graph) (Graph.children graph imported)
 
-let merge (graph : Graph.graph) =
+let merge (graph : Graph.t) =
   if !profile_with_debug then
     Printf.eprintf "[Profiling] merging foreign graph\n%!";
   merge_branch !current_root_node graph (Graph.root graph)
@@ -844,7 +715,7 @@ let parse_env_options s =
   let sys_time = ref false in
   let recursive = ref false in
   let allocated_bytes = ref false in
-  let split_trim c s = List.map String.trim (Misc.split c s) in
+  let split_trim c s = List.map String.trim (split c s) in
   let warning s = eprintf "[LANDMARKS] %s.\n%!" s in
   let parse_option s =
     let invalid_for opt given =
@@ -882,8 +753,8 @@ let parse_env_options s =
     | [ "format"; unknown ] -> invalid_for "format" unknown
     | [ "output"; "stderr" ] -> output := Channel stderr
     | [ "output"; "stdout" ] -> output := Channel stdout
-    | [ "output"; temporary ]
-      when Misc.starts_with ~prefix:"temporary" temporary -> begin
+    | [ "output"; temporary ] when starts_with ~prefix:"temporary" temporary ->
+      begin
       match split_trim ':' temporary with
       | [ "temporary" ] -> output := Temporary None
       | [ "temporary"; dir_spec ] -> begin

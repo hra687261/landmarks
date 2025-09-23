@@ -1,7 +1,7 @@
 (executable
  (name test)
  (modes js)
- (libraries landmark))
+ (libraries landmarks))
 
 (rule
  (deps ./test.bc.js)

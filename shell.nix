@@ -14,5 +14,6 @@ pkgs.mkShell {
   ];
   buildInputs = with pkgs.ocamlPackages; [
     ppxlib
+    prelude
   ];
 }

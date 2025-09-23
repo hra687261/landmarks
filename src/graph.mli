@@ -4,68 +4,34 @@
 
 (** All about exporting profiling results *)
 
-(** A {i callgraph} is a tree where each {! node} is an instance of a
-    {!Landmark.landmark} representing the entering and exiting of instrumented
-    code in the execution path. *)
-
-(** Identifies nodes *)
-type id = int
-
-(** The kind of node. *)
-type kind =
-  | Normal  (** Usual landmarks *)
-  | Root  (** The special node that started with the profiling. *)
-  | Counter  (** Counters (see {!Landmark.counter}) *)
-  | Sampler  (** Samplers (set {!Landmark.sampler}) *)
-
-(** The type exported view of a node. *)
-type node =
-  { id : id  (** Unique identifier. *)
-  ; kind : kind
-  ; landmark_id : string  (** The node is an instance of this landmark. *)
-  ; name : string  (** Name of the landmark (see {! Landmark.register}). *)
-  ; location : string
-      (** Location of the landmark (see {! Landmark.register}). *)
-  ; calls : int  (** Number of time this node was entered. *)
-  ; time : float  (** Time (in cycles) spent between enter and exit. *)
-  ; children : id list
-      (** The list of instances of landmarks that was entered while the node was
-          opened. *)
-  ; sys_time : float  (** Time (using Sys.time) spent between enter and exit. *)
-  ; allocated_bytes : int  (** Allocated bytes between enter and exit. *)
-  ; allocated_bytes_major : int
-      (** Allocated bytes in the major heap between enter and exit. *)
-  ; distrib : floatarray
-      (** For samplers only. The list of collected samples. *)
-  }
+(** A {i callgraph} is a tree of {! node}. *)
 
 (** {3 Callgraph} *)
 
 (** The type of callgraphs. *)
-type graph =
-  { nodes : node array
+type t =
+  { nodes : Node.t array
   ; label : string
-  ; root : id
+  ; root : Node.id
   }
 
 (** Returns all nodes of a graph. *)
-val nodes : graph -> node list
+val nodes : t -> Node.t list
 
 (** Returns the root of a graph. *)
-val root : graph -> node
+val root : t -> Node.t
 
-(** Returns the children of node([children graph node] is equivalent to
-    [List.map (node_of_id graph) node.children] *)
-val children : graph -> node -> node list
+(** Returns the children of node. *)
+val children : t -> Node.t -> Node.t list
 
 (** Change the root of a graph *)
-val subgraph : graph -> node -> graph
+val subgraph : t -> Node.t -> t
 
 (** Returns a fully qualified name if it is needed. *)
-val label : graph -> node -> string
+val label : t -> Node.t -> string
 
 (** Build a graph from a list of nodes. *)
-val graph_of_nodes : ?label:string -> ?root:id -> node list -> graph
+val of_nodes : ?label:string -> ?root:Node.id -> Node.t list -> t
 
 (** {3 Traversal} *)
 
@@ -78,46 +44,49 @@ val graph_of_nodes : ?label:string -> ?root:id -> node list -> graph
     [path]. The flag [visited] is true when the vertex has already been visited.
 *)
 val path_dfs :
-     (bool -> node list -> node -> unit)
-  -> (node list -> node -> unit)
-  -> graph
+     (bool -> Node.t list -> Node.t -> unit)
+  -> (Node.t list -> Node.t -> unit)
+  -> t
   -> unit
 
 (** A specialization of [path_dfs] that does not need to read the visited flag.
     The returned values of the first function tells whether or not the traversal
     should continue visiting the children of the current node. *)
 val dfs :
-  (node list -> node -> bool) -> (node list -> node -> unit) -> graph -> unit
+     (Node.t list -> Node.t -> bool)
+  -> (Node.t list -> Node.t -> unit)
+  -> t
+  -> unit
 
 (** {3 Utility functions} *)
 
 (** Returns the depth to the root of the node (it is better to partially apply
     the function, if you need to call multiple times on the same graph). *)
-val depth : graph -> node -> int
+val depth : t -> Node.t -> int
 
 (** Returns the oldest ancestor of a node that is not the root (if it exists) or
     the root if it does not exist. *)
-val shallow_ancestor : graph -> node -> node
+val shallow_ancestor : t -> Node.t -> Node.t
 
 (** Returns an arbitrary number between 0.0 and 1.0. *)
-val intensity : ?proj:(node -> float) -> graph -> node -> float
+val intensity : ?proj:(Node.t -> float) -> t -> Node.t -> float
 
 (** Compute the sum of all calls field. *)
-val total_number_of_calls : graph -> int
+val total_number_of_calls : t -> int
 
 (** {3 Simplification / Merge / Quotienting.} *)
 
 (** Remove the unaccessible nodes from a graph. *)
-val prune : graph -> graph
+val prune : t -> t
 
 (** [aggregate_landmarks g] computes the quotient by the relation "being an
     instance of the same landmark". *)
-val aggregate_landmarks : graph -> graph
+val aggregate_landmarks : t -> t
 
 (** {3 Output} *)
 
-(** Pretty printed output a call graph on an out_channel. *)
-val output : ?threshold:float -> out_channel -> graph -> unit
+(** Pretty printed output of a call graph on an out_channel. *)
+val output : ?threshold:float -> out_channel -> t -> unit
 
 (** Output a JSON representation of a call graph on an out_channel. *)
-val output_json : out_channel -> graph -> unit
+val output_json : out_channel -> t -> unit

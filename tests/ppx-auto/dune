@@ -3,7 +3,7 @@
 
 (executable
  (name test)
- (libraries landmark)
+ (libraries landmarks)
  (preprocess
   (pps ppx_landmarks --auto --remove)))
 

@@ -1,7 +1,7 @@
 let freq () =
-  let r = Landmark.clock () in
+  let r = Landmarks.clock () in
   Unix.sleep 1;
-  let t = Landmark.clock () in
+  let t = Landmarks.clock () in
   Int64.(to_float (sub t r)) /. 1e9
 
 let () =
@@ -21,8 +21,8 @@ let () =
   let gap_samples = Array.make nb_samples 0.0 in
   let timestamp = Unix.gettimeofday () in
   for k = 0 to Array.length gap_samples - 1 do
-    let t = Landmark.clock () in
-    let s = Landmark.clock () in
+    let t = Landmarks.clock () in
+    let s = Landmarks.clock () in
     gap_samples.(k) <- Int64.(to_float (sub s t))
   done;
   let duration = Unix.gettimeofday () -. timestamp in

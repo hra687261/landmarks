@@ -1,9 +1,19 @@
 (library
- (name landmark)
  (public_name landmarks)
+ ;; TODO: remove later, used for cleaning
+ ;;(libraries prelude)
+ (modules graph json landmarks node sparse_array stack)
+ (private_modules json sparse_array stack)
  (no_dynlink)
  (flags
-  (:standard -w +A-30-42-41-40-4-70 -safe-string -strict-sequence))
+  (:standard
+   -w
+   +A-30-42-41-40-4-70
+   -safe-string
+   -strict-sequence
+   ;; TODO: remove later, used for cleaning
+   ;; -open Prelude
+   ))
  (foreign_stubs
   (language c)
   (names utils))

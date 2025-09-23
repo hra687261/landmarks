@@ -14,7 +14,7 @@
     archive. *)
 
 include
-  module type of Landmark
-    with type landmark = Landmark.landmark
-     and type sampler = Landmark.sampler
-     and type counter = Landmark.counter
+  module type of Landmarks
+    with type landmark = Landmarks.landmark
+     and type sampler = Landmarks.sampler
+     and type counter = Landmarks.counter

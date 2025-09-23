@@ -2,69 +2,78 @@
 (* See the attached LICENSE file.                                    *)
 (* Copyright (C) 2000-2025 LexiFi                                    *)
 
-open Misc
+(* TODO: remove me *)
+module Hashtbl = struct
+  include Hashtbl
 
-type id = int
+  let find tbl k =
+    match Hashtbl.find_opt tbl k with None -> raise Not_found | Some v -> v
+end
 
-type kind =
-  | Normal
-  | Root
-  | Counter
-  | Sampler
+(* TODO: remove me *)
+let ( ^ ) l r = String.concat "" [ l; r ]
 
-let string_of_kind = function
-  | Normal -> "normal"
-  | Root -> "root"
-  | Counter -> "counter"
-  | Sampler -> "sampler"
+module SetNode = Set.Make (Node)
 
-type node =
-  { id : int
-  ; kind : kind
-  ; landmark_id : string
-  ; name : string
-  ; location : string
-  ; calls : int
-  ; time : float
-  ; children : id list
-  ; sys_time : float
-  ; allocated_bytes : int
-  ; allocated_bytes_major : int
-  ; distrib : floatarray
-  }
+(* TODO: remove me *)
+module HashNode = struct
+  include Hashtbl.Make (Node)
 
-type graph =
-  { nodes : node array
+  let find tbl k =
+    match find_opt tbl k with None -> raise Not_found | Some v -> v
+end
+
+let group_proj f l =
+  let tbl = Hashtbl.create (List.length l) in
+  List.iter
+    (fun x ->
+      let key = f x in
+      match Hashtbl.find_opt tbl key with
+      | None -> Hashtbl.replace tbl key [ x ]
+      | Some l -> Hashtbl.replace tbl key (x :: l) )
+    l;
+  Hashtbl.fold (fun _ value acc -> value :: acc) tbl []
+
+let base_name s =
+  match String.rindex_opt s '.' with None -> s | Some k -> String.sub s 0 k
+
+module StringSet = Set.Make (String)
+
+let group_by ~equals l =
+  let rec aux cur stk acc = function
+    | [] -> List.rev (stk :: acc)
+    | hd :: tl when equals cur hd -> aux cur (hd :: stk) acc tl
+    | hd :: tl -> aux hd [ hd ] (List.rev stk :: acc) tl
+  in
+  match l with [] -> [] | hd :: tl -> aux hd [ hd ] [] tl
+
+let rec choose f = function
+  | [] -> []
+  | hd :: tl -> (
+    match f hd with Some x -> x :: choose f tl | None -> choose f tl )
+
+let duplicated_elements l =
+  List.sort String.compare l
+  |> group_by ~equals:String.equal
+  |> choose (function x :: _ :: _ -> Some x | _ -> None)
+
+type t =
+  { nodes : Node.t array
   ; label : string
-  ; root : id
+  ; root : Node.id
   }
 
-let graph_of_nodes ?(label = "") ?(root = 0) nodes =
+let of_nodes ?(label = "") ?(root = 0) nodes =
   { nodes = Array.of_list nodes; label; root }
 
-let children { nodes; _ } node =
-  List.map (fun k -> nodes.(k)) node.children
-  |> List.sort (fun n1 n2 -> Float.compare n2.time n1.time)
+let children { nodes; _ } (node : Node.t) =
+  List.map (fun k -> nodes.(k)) node.children |> List.sort Node.compare_time
 
 let nodes { nodes; _ } = Array.to_list nodes
 
 let root { nodes; root; _ } = nodes.(root)
 
-let subgraph graph node = { graph with root = node.id }
-
-module SetNode = Set.Make (struct
-  type t = node
-
-  let compare x y = Int.compare x.id y.id
-end)
-
-module HashNode = Hashtbl.Make (struct
-  type t = node
-
-  let equal x y = x.id = y.id
-
-  let hash { id; _ } = Hashtbl.hash id
-end)
+let subgraph graph (node : Node.t) = { graph with root = node.id }
 
 let prune graph =
   let visited_table = HashNode.create 17 in
@@ -86,11 +95,11 @@ let prune graph =
   in
   let translator = Hashtbl.create 17 in
   List.iteri
-    (fun k n ->
+    (fun k (n : Node.t) ->
       assert (not (Hashtbl.mem translator n.id));
       Hashtbl.add translator n.id k )
     nodes;
-  let translate node =
+  let translate (node : Node.t) =
     try
       let id = Hashtbl.find translator node.id in
       let children = List.map (Hashtbl.find translator) node.children in
@@ -169,53 +178,61 @@ let shallow_ancestor graph =
   fun node -> HashNode.find result node
 
 let total_number_of_calls graph =
-  List.fold_left (fun acc { calls; _ } -> acc + calls) 0 (nodes graph)
+  List.fold_left (fun acc (node : Node.t) -> acc + node.calls) 0 (nodes graph)
 
 let aggregate_landmarks graph =
   let { nodes; label; root } = prune graph in
   let root_id = nodes.(root).landmark_id in
   let group_nodes =
     group_proj
-      (fun ({ landmark_id; _ } : node) -> landmark_id)
+      (fun ({ landmark_id; _ } : Node.t) -> landmark_id)
       (Array.to_list nodes)
   in
   let translator = Hashtbl.create 17 in
   List.iteri
-    (fun i l -> Hashtbl.replace translator (List.hd l).landmark_id i)
+    (fun i -> function
+      | [] -> assert false
+      | (hd : Node.t) :: _tl -> Hashtbl.replace translator hd.landmark_id i )
     group_nodes;
-  let aggregate_nodes l =
+  let aggregate_nodes (l : Node.t list) =
     match l with
     | [] -> assert false
     | hd :: tl ->
-      let id = Hashtbl.find translator hd.landmark_id in
+      let id =
+        match Hashtbl.find_opt translator hd.landmark_id with
+        | None -> assert false
+        | Some id -> id
+      in
       let time =
-        List.fold_left (fun acc { time; _ } -> acc +. time) hd.time tl
+        List.fold_left (fun acc (node : Node.t) -> acc +. node.time) hd.time tl
       in
       let calls =
-        List.fold_left (fun acc { calls; _ } -> acc + calls) hd.calls tl
+        List.fold_left (fun acc (node : Node.t) -> acc + node.calls) hd.calls tl
       in
       let sys_time =
         List.fold_left
-          (fun acc { sys_time; _ } -> acc +. sys_time)
+          (fun acc (node : Node.t) -> acc +. node.sys_time)
           hd.sys_time tl
       in
       let allocated_bytes, allocated_bytes_major =
         List.fold_left
-          (fun (ab, abm) { allocated_bytes; allocated_bytes_major; _ } ->
-            (ab + allocated_bytes, abm + allocated_bytes_major) )
+          (fun (ab, abm) (node : Node.t) ->
+            (ab + node.allocated_bytes, abm + node.allocated_bytes_major) )
           (hd.allocated_bytes, hd.allocated_bytes_major)
           tl
       in
       let children =
-        let lm_ids_of_children { children; _ } =
+        let lm_ids_of_children (node : Node.t) =
           StringSet.of_list
-            (List.map (fun id -> nodes.(id).landmark_id) children)
+            (List.map (fun id -> nodes.(id).landmark_id) node.children)
         in
-        List.fold_left
-          (fun acc node -> StringSet.union acc (lm_ids_of_children node))
-          StringSet.empty l
-        |> StringSet.elements
-        |> List.map (Hashtbl.find translator)
+        try
+          List.fold_left
+            (fun acc node -> StringSet.union acc (lm_ids_of_children node))
+            StringSet.empty l
+          |> StringSet.elements
+          |> List.map (Hashtbl.find translator)
+        with Not_found -> assert false
       in
       { hd with
         id
@@ -227,14 +244,20 @@ let aggregate_landmarks graph =
       ; children
       }
   in
-  let root = Hashtbl.find translator root_id in
+  let root =
+    match Hashtbl.find_opt translator root_id with
+    | None -> assert false
+    | Some root -> root
+  in
   let nodes = Array.of_list (List.map aggregate_nodes group_nodes) in
+
   { nodes
-  ; label = (if label = "" then "aggretated" else label ^ " (aggregated)")
+  ; label =
+      (if String.equal "" label then "aggretated" else label ^ " (aggregated)")
   ; root
   }
 
-let intensity ?(proj = fun { time; _ } -> time) graph =
+let intensity ?(proj = fun (node : Node.t) -> node.time) graph =
   let sa = shallow_ancestor graph in
   fun node ->
     let not_accounted =
@@ -243,7 +266,7 @@ let intensity ?(proj = fun { time; _ } -> time) graph =
         (proj node) (children graph node)
     in
     let reference = proj (sa node) in
-    if reference = 0.0 then 0.0 else not_accounted /. reference
+    if Float.equal reference 0.0 then 0.0 else not_accounted /. reference
 
 let color graph =
   let intensity = intensity graph in
@@ -256,14 +279,14 @@ let color graph =
   let purple s = "\027[1;35m" ^ s ^ "\027[0m" in
   let white_bg s = "\027[1;47m" ^ s ^ "\027[0m" in
   let black s = "\027[1;30m" ^ s ^ "\027[0m" in
-  fun node ->
+  fun (node : Node.t) ->
     match node.kind with
     | Normal -> begin
       let x = intensity node in
-      if x > 0.0 then
-        if x > 0.15 then bold_red
-        else if x > 0.05 then red
-        else if x > 0.01 then yellow
+      if Float.compare x 0.0 > 0 then
+        if Float.compare x 0.15 > 0 then bold_red
+        else if Float.compare x 0.05 > 0 then red
+        else if Float.compare x 0.01 > 0 then yellow
         else white
       else bold_white
     end
@@ -272,19 +295,20 @@ let color graph =
     | Root -> fun x -> white_bg (black x)
 
 let label graph =
-  let nodes = group_proj (fun { location; _ } -> location) (nodes graph) in
+  let nodes = group_proj (fun (node : Node.t) -> node.location) (nodes graph) in
   let names =
-    flatten_map
+    List.concat_map
       (fun l ->
-        List.sort_uniq String.compare (List.map (fun { name; _ } -> name) l) )
+        List.sort_uniq String.compare
+          (List.map (fun (node : Node.t) -> node.name) l) )
       nodes
   in
   let needs_location = StringSet.of_list (duplicated_elements names) in
-  fun { location; name; _ } ->
-    if StringSet.mem name needs_location then
-      let location = base_name location in
-      Printf.sprintf "%s (%s)" name location
-    else name
+  fun (node : Node.t) ->
+    if StringSet.mem node.name needs_location then
+      let location = base_name node.location in
+      Printf.sprintf "%s (%s)" node.name location
+    else node.name
 
 let output ?(threshold = 1.0) oc graph =
   Printf.fprintf oc "Call graph%s:\n-----------%s\n%!"
@@ -311,13 +335,13 @@ let output ?(threshold = 1.0) oc graph =
     int_of_float
     @@ 1.
        +. log10
-            ( List.map (fun { calls; _ } -> calls) (nodes graph)
+            ( List.map (fun (node : Node.t) -> node.calls) (nodes graph)
             |> List.fold_left max 1 |> float_of_int )
   in
-  let regular_call ancestors node =
+  let regular_call ancestors (node : Node.t) =
     match ancestors with
     | [] -> true
-    | father :: _ ->
+    | (father : Node.t) :: _ ->
       let depth = List.length ancestors in
       let spaces = spaces depth in
       let this_time, father_time = (node.time, father.time) in
@@ -350,22 +374,14 @@ let output ?(threshold = 1.0) oc graph =
   in
   dfs regular_call recursive_call graph;
   let aggregated_graph = aggregate_landmarks graph in
-  let all_nodes =
-    List.sort
-      (fun { time = time1; _ } { time = time2; _ } -> Float.compare time2 time1)
-      (nodes aggregated_graph)
-  in
-  let normal_nodes =
-    List.filter (fun n -> n.kind = Normal || n.kind = Root) all_nodes
-  in
-  let sample_nodes = List.filter (fun n -> n.kind = Sampler) all_nodes in
+  let all_nodes = List.sort Node.compare_time (nodes aggregated_graph) in
+  let normal_nodes = List.filter Node.is_normal_or_root all_nodes in
+  let sample_nodes = List.filter Node.is_sampler all_nodes in
   let profile_with_sys_time =
-    List.exists (fun { sys_time; _ } -> sys_time <> 0.0) normal_nodes
+    List.exists (fun (node : Node.t) -> node.sys_time <> 0.0) normal_nodes
   in
   let profile_with_allocated_bytes =
-    List.exists
-      (fun { allocated_bytes; _ } -> allocated_bytes <> 0)
-      normal_nodes
+    List.exists (fun (node : Node.t) -> node.allocated_bytes <> 0) normal_nodes
   in
   let optional_headers =
     match (profile_with_sys_time, profile_with_allocated_bytes) with
@@ -397,18 +413,18 @@ let output ?(threshold = 1.0) oc graph =
   Printf.fprintf oc "\nAggregated table:\n----------------\n%!";
   let max_name_length =
     List.fold_left
-      (fun acc { name; _ } -> max acc (String.length name))
+      (fun acc (node : Node.t) -> max acc (String.length node.name))
       0 normal_nodes
   in
   let max_location_length =
     List.fold_left
-      (fun acc { location; _ } -> max acc (String.length location))
+      (fun acc (node : Node.t) -> max acc (String.length node.location))
       0 normal_nodes
   in
   Printf.fprintf oc "%*s; %*s; %8s; %8s%s\n%!" max_name_length "Name"
     max_location_length "Filename" "Calls" "Time" optional_headers;
   let print_row
-    { name
+    { Node.name
     ; location
     ; calls
     ; time
@@ -438,104 +454,20 @@ let output ?(threshold = 1.0) oc graph =
       (avg, stddev)
     in
     List.iter
-      (fun node ->
+      (fun (node : Node.t) ->
         let avg, stddev = stats node.distrib in
         Printf.fprintf oc "%s: avg = %g, stddev = %g\n%!" (label node) avg
           stddev )
       sample_nodes
   end
 
-module JSON = struct
-  type json =
-    | String of string
-    | Int of int
-    | Float of float
-    | Map of (string * json) list
-    | List of json list
-    | ListClosure of int * (int -> json)
-
-  open Format
-
-  let rec output oc = function
-    | String s -> fprintf oc "\"%s\"" (String.escaped s)
-    | Int n -> fprintf oc "%d" n
-    | Float f -> fprintf oc "%f" f
-    | Map l ->
-      fprintf oc "{@,";
-      let first = ref true in
-      List.iter
-        (fun (name, json) ->
-          if !first then first := false else fprintf oc ",@,";
-          fprintf oc "@[<v 2>%S: %a@]" name output json )
-        l;
-      fprintf oc "@;<0 -2>}"
-    | List [] -> fprintf oc "[]"
-    | List [ x ] -> fprintf oc "[%a]" output x
-    | List l when List.for_all (function Int _ -> true | _ -> false) l ->
-      fprintf oc "[%s]"
-        (String.concat ", "
-           (List.map
-              (function Int x -> string_of_int x | _ -> assert false)
-              l ) )
-    | List l ->
-      fprintf oc "[@,";
-      let first = ref true in
-      List.iter
-        (fun json ->
-          if !first then first := false else fprintf oc ",@,";
-          fprintf oc "@[<v 2>%a@]" output json )
-        l;
-      fprintf oc "@;<0 -2>]"
-    | ListClosure (n, f) ->
-      fprintf oc "[@,";
-      for k = 0 to n - 1 do
-        let json = f k in
-        if k > 0 then fprintf oc ",@,";
-        fprintf oc "@[<v 2>%a@]" output json
-      done;
-      fprintf oc "@;<0 -2>]"
-
-  let output oc = fprintf (formatter_of_out_channel oc) "@[<v 2>%a@]@." output
-end
-
-open JSON
-
-let json_of_node
-  { id
-  ; kind
-  ; landmark_id
-  ; name
-  ; location
-  ; calls
-  ; time
-  ; children
-  ; sys_time
-  ; allocated_bytes
-  ; allocated_bytes_major
-  ; distrib
-  } =
-  Map
-    [ ("id", Int id)
-    ; ("kind", String (string_of_kind kind))
-    ; ("landmark_id", String landmark_id)
-    ; ("name", String name)
-    ; ("location", String location)
-    ; ("calls", Int calls)
-    ; ("time", Float time)
-    ; ("children", List (List.map (fun x -> Int x) children))
-    ; ("sys_time", Float sys_time)
-    ; ("allocated_bytes", Int allocated_bytes)
-    ; ("allocated_bytes_major", Int allocated_bytes_major)
-    ; ( "distrib"
-      , List (List.map (fun x -> Float x) (Float.Array.to_list distrib)) )
-    ]
-
-let json_of_graphs { nodes; label; root } =
+let to_json { nodes; label; root } =
+  let open Json in
   Map
     [ ( "nodes"
-      , ListClosure (Array.length nodes, fun k -> json_of_node nodes.(k)) )
+      , ListClosure (Array.length nodes, fun k -> Node.to_json nodes.(k)) )
     ; ("label", String label)
     ; ("root", Int root)
     ]
 
-let output_json oc graph = JSON.output oc (json_of_graphs graph)
+let output_json oc graph = Json.output oc (to_json graph)

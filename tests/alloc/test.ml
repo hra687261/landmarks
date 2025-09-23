@@ -1,4 +1,4 @@
-module L = Landmark
+module L = Landmarks
 
 let name = "zero_alloc"
 
@@ -12,11 +12,12 @@ let () =
   L.exit zero_alloc
 
 let check_allocated_bytes () =
-  let open Landmark.Graph in
+  let open L in
+  let open Graph in
   let graph = L.export () in
   let node =
     root graph |> children graph
-    |> List.filter (fun n -> n.name = name)
+    |> List.filter (fun (node : Node.t) -> node.name = name)
     |> List.hd
   in
   Printf.printf "Allocations:\n%d\n%d\n" node.allocated_bytes
