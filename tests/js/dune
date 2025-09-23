@@ -4,18 +4,20 @@
  (libraries landmark))
 
 (rule
-  (deps ./test.bc.js)
-  (enabled_if %{bin-available:node})
-  (action
-   (ignore-stderr
-    (with-stdout-to
-     test.out
-     (run node ./test.bc.js))))
- )
+ (deps ./test.bc.js)
+ (enabled_if %{bin-available:node})
+ (action
+  (ignore-stderr
+   (with-stdout-to
+    test.out
+    (run node ./test.bc.js)))))
 
 (rule
  (alias runtest)
  (package landmarks)
- (enabled_if (and (>= %{ocaml_version} "4.04") %{bin-available:node}))
+ (enabled_if
+  (and
+   (>= %{ocaml_version} "4.04")
+   %{bin-available:node}))
  (action
   (diff test.out.expected test.out)))

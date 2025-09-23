@@ -6,152 +6,149 @@ module Graph = Graph
 
 (** The main module *)
 
-external clock: unit -> (Int64.t [@unboxed]) =
-  "caml_highres_clock" "caml_highres_clock_native" [@@noalloc]
-(** This function is used by the landmark infrastructure to
-    measure the number of cycles inside landmarks. *)
+(** This function is used by the landmark infrastructure to measure the number
+    of cycles inside landmarks. *)
+external clock : unit -> (Int64.t[@unboxed])
+  = "caml_highres_clock" "caml_highres_clock_native"
+[@@noalloc]
 
 exception LandmarkFailure of string
 
 (** {3 Landmarks} *)
 
-(** {i Landmarks} identify portions of code, they are registered
-    with the function {! register} and delimited by {! enter} and {! exit}. *)
+(** {i Landmarks} identify portions of code, they are registered with the
+    function {! register} and delimited by {! enter} and {! exit}. *)
 
 (** The type of landmarks. *)
 type landmark
 
-val register: ?id:string -> ?location:string -> string -> landmark
-(** [register name] registers a new landmark. Note that landmarks are
-    identified by location + name (or by [id] if provided). If you
-    register a landmark twice the second call returns a physically equal
-    value to the first call (if you provide [id] the name & location of
-    the second call is ignored). *)
+(** [register name] registers a new landmark. Note that landmarks are identified
+    by location + name (or by [id] if provided). If you register a landmark
+    twice the second call returns a physically equal value to the first call (if
+    you provide [id] the name & location of the second call is ignored). *)
+val register : ?id:string -> ?location:string -> string -> landmark
 
-val landmark_of_id: string -> landmark option
 (** [landmark_of_id id] return the landmark currently identify by [id]. *)
+val landmark_of_id : string -> landmark option
 
-val enter: landmark -> unit
-(** Begins a landmark block.
-    /!\ Landmark blocks should be well-nested, otherwise a failure will be
-        raised during profiling. *)
+(** Begins a landmark block. /!\ Landmark blocks should be well-nested,
+    otherwise a failure will be raised during profiling. *)
+val enter : landmark -> unit
 
-val exit: landmark -> unit
 (** Ends a landmark block. *)
+val exit : landmark -> unit
 
-val wrap: landmark -> ('a -> 'b) -> 'a -> 'b
-(** Puts landmark blocks around a function (and close the block and re-raise
-    in case of uncaught exception). *)
+(** Puts landmark blocks around a function (and close the block and re-raise in
+    case of uncaught exception). *)
+val wrap : landmark -> ('a -> 'b) -> 'a -> 'b
 
-val unsafe_wrap: landmark -> ('a -> 'b) -> 'a -> 'b
 (** Puts landmark blocks around a function without catching exceptions. *)
+val unsafe_wrap : landmark -> ('a -> 'b) -> 'a -> 'b
 
 (** {3 Counter and samplers} *)
 
-(** {i Counters} are similar to landmarks except they represent
-    empty pieces of code. Their only primitive is {!increment} which
-    adds a constant to the field [calls]. {i Samplers} are used to
-    collect floats. *)
+(** {i Counters} are similar to landmarks except they represent empty pieces of
+    code. Their only primitive is {!increment} which adds a constant to the
+    field [calls]. {i Samplers} are used to collect floats. *)
 
 (** The type of counters. *)
 type counter
 
-val register_counter: string -> counter
-(** [register_counter name] registers a new counter.
-    Should always be called at top-level. *)
+(** [register_counter name] registers a new counter. Should always be called at
+    top-level. *)
+val register_counter : string -> counter
 
-val increment: ?times:int -> counter -> unit
 (** Increments the number of calls attached to the counter. *)
+val increment : ?times:int -> counter -> unit
 
 (** The type of samplers. *)
 type sampler
 
-val register_sampler: string -> sampler
 (** [register_counter name] registers a new sampler. *)
+val register_sampler : string -> sampler
 
-val sample: sampler -> float -> unit
 (** Collects a float. *)
+val sample : sampler -> float -> unit
 
-(** {3 Manage profiling } *)
+(** {3 Manage profiling} *)
 
-val profiling: unit -> bool
 (** Checks if the profiling is ongoing. *)
+val profiling : unit -> bool
 
 (** Where to output results. *)
 type profile_output =
-  | Silent (** disables the automatic output of profiling results
-               when the program ends. *)
-  | Temporary of string option (** writes the results in a temporary files
-                                   and prints its path on stderr. *)
-  | Channel of out_channel (** writes in the results in out_channel. *)
+  | Silent
+    (** disables the automatic output of profiling results when the program
+        ends. *)
+  | Temporary of string option
+    (** writes the results in a temporary files and prints its path on stderr.
+    *)
+  | Channel of out_channel  (** writes in the results in out_channel. *)
 
-
-type textual_option = {threshold : float}
+type textual_option = { threshold : float }
 
 (** The output format for the results.*)
 type profile_format =
-  | JSON (** Easily parsable export format. *)
-  | Textual of textual_option (** Console friendly output; nodes below the threshold (0.0 <= threshold <= 100.0) are not displayed in the callgraph. *)
+  | JSON  (** Easily parsable export format. *)
+  | Textual of textual_option
+    (** Console friendly output; nodes below the threshold (0.0 <= threshold <=
+        100.0) are not displayed in the callgraph. *)
 
-(** The profiling options control the behavior of the landmark infrastructure. *)
-type profiling_options = {
-  debug : bool;
-  (** Activates a verbose mode that outputs traces on stderr each time
-      the landmarks primitives are called. Default: false. *)
+(** The profiling options control the behavior of the landmark infrastructure.
+*)
+type profiling_options =
+  { debug : bool
+      (** Activates a verbose mode that outputs traces on stderr each time the
+          landmarks primitives are called. Default: false. *)
+  ; allocated_bytes : bool
+      (** Also collect {! Gc.allocated_bytes} during profiling. *)
+  ; sys_time : bool
+      (** Also collect {! Sys.time} timestamps during profiling. *)
+  ; recursive : bool
+      (** When false, the recursive instances of landmarks (entering a landmark
+          that has already been entered) are ignored (the number of calls is
+          updated but it does not generate a new node in the callgraph).*)
+  ; output : profile_output  (** Specify where to output the results. *)
+  ; format : profile_format  (** Specify the output format. *)
+  }
 
-  allocated_bytes: bool;
-  (** Also collect {! Gc.allocated_bytes} during profiling. *)
-
-  sys_time : bool;
-  (** Also collect {! Sys.time} timestamps during profiling. *)
-
-  recursive : bool;
-  (** When false, the recursive instances of landmarks (entering
-      a landmark that has already been entered) are ignored (the number of
-      calls is updated but it does not generate a new node in the callgraph).*)
-
-  output : profile_output;
-  (** Specify where to output the results. *)
-
-  format : profile_format
-  (** Specify the output format. *)
-}
-
-val default_options: profiling_options
 (** The default {!profiling_options}. *)
+val default_options : profiling_options
 
-val set_profiling_options: profiling_options -> unit
 (** Sets the options. *)
+val set_profiling_options : profiling_options -> unit
 
-val profiling_options: unit -> profiling_options
 (** Get the options. *)
+val profiling_options : unit -> profiling_options
 
-val start_profiling: ?profiling_options:profiling_options -> unit -> unit
 (** Starts the profiling. *)
+val start_profiling : ?profiling_options:profiling_options -> unit -> unit
 
-val stop_profiling: unit -> unit
 (** Stops the profiling. *)
+val stop_profiling : unit -> unit
 
-val reset: unit -> unit
 (** Reset the profiling information gathered by the current process. *)
+val reset : unit -> unit
 
-val export: ?label:string -> unit -> Graph.graph
 (** Export the profiling information of the current process. *)
+val export : ?label:string -> unit -> Graph.graph
 
-val export_and_reset: ?label:string -> unit -> Graph.graph
-(** Export the profiling information of the current process; then reset
-    internal state. *)
+(** Export the profiling information of the current process; then reset internal
+    state. *)
+val export_and_reset : ?label:string -> unit -> Graph.graph
 
-val merge: Graph.graph -> unit
 (** Aggregate the profiling information (exported by another process) to the
     current one. This should is used by the master process to merge exported
     profiles of workers. *)
+val merge : Graph.graph -> unit
 
-val push_profiling_state: unit -> unit
-(** Save the state of the profiler on a stack to be retrieved later by [pop_profiling_state ()]. *)
+(** Save the state of the profiler on a stack to be retrieved later by
+    [pop_profiling_state ()]. *)
+val push_profiling_state : unit -> unit
 
-val pop_profiling_state: unit -> unit
 (** See [push_profiling_state ()]. *)
+val pop_profiling_state : unit -> unit
 
+(** This a redefinition of [Stdlib.raise] to allow generated code to work with
+    -no-stdlib.*)
 external raise : exn -> 'a = "%raise"
-(** This a redefinition of [Stdlib.raise] to allow generated code to work with -no-stdlib.*)
