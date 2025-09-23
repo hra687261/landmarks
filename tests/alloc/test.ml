@@ -13,11 +13,11 @@ let () =
 
 let check_allocated_bytes () =
   let open L in
-  let open Graph in
+  let open Call_graph in
   let graph = L.export () in
   let node =
     root graph |> children graph
-    |> List.filter (fun (node : Node.t) -> node.name = name)
+    |> List.filter (fun (node : Cg_node.t) -> node.name = name)
     |> List.hd
   in
   Printf.printf "Allocations:\n%d\n%d\n" node.allocated_bytes

@@ -16,12 +16,12 @@ let () =
   Printf.printf "%d\n%!" (fib 7);
   exit main;
   if Options.ongoing () then begin
-    let open Landmarks.Graph in
+    let open Landmarks.Call_graph in
     let cg = export () in
     let agg = aggregate_landmarks cg in
     let all_nodes = nodes agg in
     print_endline "\nLandmark reached:";
     all_nodes
-    |> List.map (fun (node : Node.t) -> node.name)
+    |> List.map (fun (node : Cg_node.t) -> node.name)
     |> List.sort compare |> List.iter print_endline
   end

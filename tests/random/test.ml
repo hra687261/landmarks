@@ -192,7 +192,7 @@ let () =
   end
 
 open Landmarks
-open Graph
+open Call_graph
 
 let group_by ?(equals = ( = )) l =
   let rec aux cur stk acc = function
@@ -220,7 +220,7 @@ let duplicated_elements ?proj l =
 let check_invariants graph =
   let root = root graph in
   let roots =
-    List.find_all (fun (node : Node.t) -> node.id = root.id) (nodes graph)
+    List.find_all (fun (node : Cg_node.t) -> node.id = root.id) (nodes graph)
   in
   assert (roots = [ root ]);
   (* only one root *)
@@ -228,7 +228,7 @@ let check_invariants graph =
     (fun node ->
       match
         duplicated_elements
-          ~proj:(fun (node : Node.t) -> node.landmark_id)
+          ~proj:(fun (node : Cg_node.t) -> node.landmark_id)
           (children graph node)
       with
       | _ :: _ -> assert false
@@ -292,7 +292,7 @@ let checks () =
   Printf.printf "Check reachability invariant ...\n%!";
   assert (reachable_landmarks graph = reachable_landmarks aggregated_graph);
   List.iter
-    (fun (node : Node.t) ->
+    (fun (node : Cg_node.t) ->
       if node.kind = Sampler then
         assert (node.calls = Float.Array.length node.distrib) )
     (nodes graph)

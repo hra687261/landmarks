@@ -2,8 +2,8 @@
 (* See the attached LICENSE file.                                    *)
 (* Copyright (C) 2000-2025 LexiFi                                    *)
 
-module Node = Node
-module Graph = Graph
+module Cg_node = Cg_node
+module Call_graph = Call_graph
 
 (** The main module *)
 
@@ -85,16 +85,16 @@ val stop_profiling : unit -> unit
 val reset : unit -> unit
 
 (** Export the profiling information of the current process. *)
-val export : ?label:string -> unit -> Graph.t
+val export : ?label:string -> unit -> Call_graph.t
 
 (** Export the profiling information of the current process; then reset internal
     state. *)
-val export_and_reset : ?label:string -> unit -> Graph.t
+val export_and_reset : ?label:string -> unit -> Call_graph.t
 
 (** Aggregate the profiling information (exported by another process) to the
     current one. This should is used by the master process to merge exported
     profiles of workers. *)
-val merge : Graph.t -> unit
+val merge : Call_graph.t -> unit
 
 (** Save the state of the profiler on a stack to be retrieved later by
     [pop_profiling_state ()]. *)

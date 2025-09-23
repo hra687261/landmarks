@@ -10,28 +10,28 @@
 
 (** The type of callgraphs. *)
 type t =
-  { nodes : Node.t array
+  { nodes : Cg_node.t array
   ; label : string
-  ; root : Node.id
+  ; root : Cg_node.id
   }
 
 (** Returns all nodes of a graph. *)
-val nodes : t -> Node.t list
+val nodes : t -> Cg_node.t list
 
 (** Returns the root of a graph. *)
-val root : t -> Node.t
+val root : t -> Cg_node.t
 
 (** Returns the children of node. *)
-val children : t -> Node.t -> Node.t list
+val children : t -> Cg_node.t -> Cg_node.t list
 
 (** Change the root of a graph *)
-val subgraph : t -> Node.t -> t
+val subgraph : t -> Cg_node.t -> t
 
 (** Returns a fully qualified name if it is needed. *)
-val label : t -> Node.t -> string
+val label : t -> Cg_node.t -> string
 
 (** Build a graph from a list of nodes. *)
-val of_nodes : ?label:string -> ?root:Node.id -> Node.t list -> t
+val of_nodes : ?label:string -> ?root:Cg_node.id -> Cg_node.t list -> t
 
 (** {3 Traversal} *)
 
@@ -44,8 +44,8 @@ val of_nodes : ?label:string -> ?root:Node.id -> Node.t list -> t
     [path]. The flag [visited] is true when the vertex has already been visited.
 *)
 val path_dfs :
-     (bool -> Node.t list -> Node.t -> unit)
-  -> (Node.t list -> Node.t -> unit)
+     (bool -> Cg_node.t list -> Cg_node.t -> unit)
+  -> (Cg_node.t list -> Cg_node.t -> unit)
   -> t
   -> unit
 
@@ -53,8 +53,8 @@ val path_dfs :
     The returned values of the first function tells whether or not the traversal
     should continue visiting the children of the current node. *)
 val dfs :
-     (Node.t list -> Node.t -> bool)
-  -> (Node.t list -> Node.t -> unit)
+     (Cg_node.t list -> Cg_node.t -> bool)
+  -> (Cg_node.t list -> Cg_node.t -> unit)
   -> t
   -> unit
 
@@ -62,14 +62,14 @@ val dfs :
 
 (** Returns the depth to the root of the node (it is better to partially apply
     the function, if you need to call multiple times on the same graph). *)
-val depth : t -> Node.t -> int
+val depth : t -> Cg_node.t -> int
 
 (** Returns the oldest ancestor of a node that is not the root (if it exists) or
     the root if it does not exist. *)
-val shallow_ancestor : t -> Node.t -> Node.t
+val shallow_ancestor : t -> Cg_node.t -> Cg_node.t
 
 (** Returns an arbitrary number between 0.0 and 1.0. *)
-val intensity : ?proj:(Node.t -> float) -> t -> Node.t -> float
+val intensity : ?proj:(Cg_node.t -> float) -> t -> Cg_node.t -> float
 
 (** Compute the sum of all calls field. *)
 val total_number_of_calls : t -> int

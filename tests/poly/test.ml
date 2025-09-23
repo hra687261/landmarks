@@ -17,7 +17,7 @@ let _ =
 let () =
   let open Landmark in
   if profiling () then begin
-    let open Landmark.Graph in
+    let open Landmark.Call_graph in
     let cg = export () in
     let agg = aggregate_landmarks cg in
     let all_nodes = nodes agg in

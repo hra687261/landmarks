@@ -5,7 +5,7 @@ let rec fp n () = if n > 0 then call (fp (n - 1))
 let () =
   begin
     let open Landmark in
-    let open Landmark.Graph in
+    let open Landmark.Call_graph in
     start_profiling
       ~profiling_options:{ default_options with recursive = true }
       ();

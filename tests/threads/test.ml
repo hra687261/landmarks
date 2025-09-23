@@ -9,7 +9,7 @@ let () =
     Array.iter Thread.join a
   end;
   let module L = Landmark_threads in
-  let open L.Graph in
+  let open L.Call_graph in
   let cg = L.export () in
   let agg = aggregate_landmarks cg in
   let all_nodes = nodes agg in

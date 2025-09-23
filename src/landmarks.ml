@@ -2,8 +2,8 @@
 (* See the attached LICENSE file.                                    *)
 (* Copyright (C) 2000-2025 LexiFi                                    *)
 
-module Node = Node
-module Graph = Graph
+module Cg_node = Cg_node
+module Call_graph = Call_graph
 module Options = Options
 
 external clock : unit -> (Int64.t[@unboxed])
@@ -38,7 +38,7 @@ type floats =
 type landmark =
   { id : int
   ; key : landmark_key
-  ; kind : Node.kind
+  ; kind : Cg_node.kind
   ; name : string
   ; location : string
   ; mutable last_parent : node
@@ -78,7 +78,7 @@ let new_floats () =
   }
 
 let rec landmark_root =
-  { kind = Node.Root
+  { kind = Cg_node.Root
   ; id = 0
   ; name = "ROOT"
   ; location = __FILE__
@@ -167,7 +167,8 @@ let new_node landmark =
 
 let current_root_node = ref (new_node landmark_root)
 
-let landmark_of_node ({ landmark_id = key; name; location; kind; _ } : Node.t) =
+let landmark_of_node ({ landmark_id = key; name; location; kind; _ } : Cg_node.t)
+    =
   match landmark_of_id key with
   | None -> new_landmark ~key ~name ~kind ~location ()
   | Some landmark -> landmark
@@ -203,11 +204,11 @@ let register_generic ?id ?location kind name =
   register_generic ~id ~location kind name
 
 let register ?id ?location name =
-  register_generic ?id ?location Node.Normal name
+  register_generic ?id ?location Cg_node.Normal name
 
-let register_counter name = register_generic Node.Counter name
+let register_counter name = register_generic Cg_node.Counter name
 
-let register_sampler name = register_generic Node.Sampler name
+let register_sampler name = register_generic Cg_node.Sampler name
 
 let current_node_ref = ref !current_root_node
 
@@ -525,7 +526,7 @@ let export ?(label = "") () =
     let children =
       List.map (fun ({ id; _ } : node) -> id) (Sparse_array.values children)
     in
-    { Node.landmark_id
+    { Cg_node.landmark_id
     ; id
     ; name
     ; location
@@ -545,7 +546,7 @@ let export ?(label = "") () =
   end;
   let all_nodes = List.rev !allocated_nodes in
   let nodes = array_list_map export_node all_nodes in
-  { Graph.nodes; label; root = 0 }
+  { Call_graph.nodes; label; root = 0 }
 
 let export_and_reset ?label () =
   let profiling = Options.ongoing () in
@@ -555,7 +556,7 @@ let export_and_reset ?label () =
   if profiling then start_profiling ();
   res
 
-let rec merge_branch node graph (imported : Node.t) =
+let rec merge_branch node graph (imported : Cg_node.t) =
   let floats = node.floats in
   floats.time <- imported.time +. floats.time;
   floats.sys_time <- imported.sys_time +. floats.sys_time;
@@ -565,16 +566,16 @@ let rec merge_branch node graph (imported : Node.t) =
   node.calls <- imported.calls + node.calls;
   Float.Array.iter (Stack.push node.distrib) imported.distrib;
 
-  let children = Graph.children graph imported in
+  let children = Call_graph.children graph imported in
   List.iter
-    (fun (imported_son : Node.t) ->
+    (fun (imported_son : Cg_node.t) ->
       let landmark = landmark_of_node imported_son in
       match Sparse_array.get node.children landmark.id with
       | exception Not_found -> new_branch node graph imported_son
       | son -> merge_branch son graph imported_son )
     children
 
-and new_branch parent graph (imported : Node.t) =
+and new_branch parent graph (imported : Cg_node.t) =
   let landmark = landmark_of_node imported in
   let node = new_node landmark in
   node.calls <- imported.calls;
@@ -584,12 +585,12 @@ and new_branch parent graph (imported : Node.t) =
   floats.sys_time <- imported.sys_time;
   Float.Array.iter (Stack.push node.distrib) imported.distrib;
   Sparse_array.set parent.children landmark.id node;
-  List.iter (new_branch node graph) (Graph.children graph imported)
+  List.iter (new_branch node graph) (Call_graph.children graph imported)
 
-let merge (graph : Graph.t) =
+let merge (graph : Call_graph.t) =
   if Options.with_debug () then
     Printf.eprintf "[Profiling] merging foreign graph\n%!";
-  merge_branch !current_root_node graph (Graph.root graph)
+  merge_branch !current_root_node graph (Call_graph.root graph)
 
 let exit_hook () =
   if Options.with_debug () then Printf.eprintf "[Profiling] exit_hook\n%!";
@@ -599,8 +600,8 @@ let exit_hook () =
     let cg = export ~label () in
     match (Options.output (), Options.format ()) with
     | Silent, _ -> ()
-    | Channel out, Textual { threshold } -> Graph.output ~threshold out cg
-    | Channel out, JSON -> Graph.output_json out cg
+    | Channel out, Textual { threshold } -> Call_graph.output ~threshold out cg
+    | Channel out, JSON -> Call_graph.output_json out cg
     | Temporary temp_dir, format ->
       let tmp_file, oc =
         Filename.open_temp_file ?temp_dir "profile_at_exit" ".tmp"
@@ -609,8 +610,8 @@ let exit_hook () =
         tmp_file;
       flush stdout;
       ( match format with
-      | Textual { threshold } -> Graph.output ~threshold oc cg
-      | JSON -> Graph.output_json oc cg );
+      | Textual { threshold } -> Call_graph.output ~threshold oc cg
+      | JSON -> Call_graph.output_json oc cg );
       close_out oc
   end
 
