@@ -113,13 +113,13 @@ let string_of_loc (l : Location.t) =
 
 let enter_landmark lm =
   let landmark_enter =
-    if !threads then "Landmark_threads.enter" else "Landmark.enter"
+    if !threads then "Landmark_threads.enter" else "Landmarks.enter"
   in
   Exp.apply (var landmark_enter) [ (Nolabel, var lm) ]
 
 let exit_landmark lm =
   let landmark_exit =
-    if !threads then "Landmark_threads.exit" else "Landmark.exit"
+    if !threads then "Landmark_threads.exit" else "Landmarks.exit"
   in
   Exp.apply (var landmark_exit) [ (Nolabel, var lm) ]
 
@@ -129,7 +129,7 @@ let register_landmark ?id name location =
     ; (Nolabel, name)
     ]
   in
-  Exp.apply (var "Landmark.register")
+  Exp.apply (var "Landmarks.register")
     ( match id with
     | None -> args
     | Some id -> (Labelled "id", Const.string id |> Exp.constant) :: args )
@@ -148,7 +148,7 @@ let new_landmark landmark_name loc =
 
 let qualified ctx name = String.concat "." (List.rev (name :: ctx))
 
-let raise_ident = "Landmark.raise"
+let raise_ident = "Landmarks.raise"
 
 let unit = Exp.construct (mknoloc (Longident.parse "()")) None
 
@@ -175,7 +175,7 @@ let wrap_landmark ctx landmark loc expr =
   | Dynamic expression ->
     let landmark = Printf.sprintf "__dynamic_landmark__%s" !landmark_hash in
     Exp.ifthenelse
-      (Exp.apply (var "Landmark.profiling") [ (Nolabel, unit) ])
+      (Exp.apply (var "Landmarks.Option.ongoing") [ (Nolabel, unit) ])
       (Exp.let_ Nonrecursive
          [ Vb.mk
              (Pat.var (mknoloc landmark))

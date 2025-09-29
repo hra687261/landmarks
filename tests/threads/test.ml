@@ -15,5 +15,5 @@ let () =
   let all_nodes = nodes agg in
   print_endline "\nLandmark reached:";
   all_nodes
-  |> List.map (fun { name; _ } -> name)
+  |> List.map (fun { Landmarks.Cg_node.name; _ } -> name)
   |> List.sort compare |> List.iter print_endline

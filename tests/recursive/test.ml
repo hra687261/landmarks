@@ -4,10 +4,10 @@ let rec fp n () = if n > 0 then call (fp (n - 1))
 
 let () =
   begin
-    let open Landmark in
-    let open Landmark.Call_graph in
+    let open Landmarks in
+    let open Landmarks.Call_graph in
     start_profiling
-      ~profiling_options:{ default_options with recursive = true }
+      ~profiling_options:{ Options.default with recursive = true }
       ();
     fp 10 ();
     stop_profiling ();
@@ -15,7 +15,7 @@ let () =
     Printf.printf "recursive: %d nodes\n%!" nb_recursive_nodes;
 
     start_profiling
-      ~profiling_options:{ default_options with recursive = false }
+      ~profiling_options:{ Options.default with recursive = false }
       ();
     fp 10 ();
     stop_profiling ();

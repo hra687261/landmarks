@@ -102,7 +102,7 @@ let local_module () =
   M.local_noauto ()
 
 let () =
-  let open Landmark in
+  let open Landmarks in
   let main () =
     ((let compute () =
         ignore (fib 10);
@@ -139,13 +139,13 @@ let () =
     [@landmark "main"] )
   in
   main ();
-  if profiling () then begin
-    let open Landmark.Call_graph in
+  if Landmarks.Options.ongoing () then begin
+    let open Landmarks.Call_graph in
     let cg = export () in
     let agg = aggregate_landmarks cg in
     let all_nodes = nodes agg in
     print_endline "\nLandmark reached:";
     all_nodes
-    |> List.map (fun { name; _ } -> name)
+    |> List.map (fun { Landmarks.Cg_node.name; _ } -> name)
     |> List.sort compare |> List.iter print_endline
   end

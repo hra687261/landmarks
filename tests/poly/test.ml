@@ -15,14 +15,14 @@ let _ =
   (obj#test3 "marc", obj#test3 2)
 
 let () =
-  let open Landmark in
-  if profiling () then begin
-    let open Landmark.Call_graph in
+  let open Landmarks in
+  if Options.ongoing () then begin
+    let open Landmarks.Call_graph in
     let cg = export () in
     let agg = aggregate_landmarks cg in
     let all_nodes = nodes agg in
     print_endline "\nLandmark reached:";
     all_nodes
-    |> List.map (fun { name; _ } -> name)
+    |> List.map (fun { Landmarks.Cg_node.name; _ } -> name)
     |> List.sort compare |> List.iter print_endline
   end
