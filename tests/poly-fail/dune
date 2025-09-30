@@ -13,8 +13,8 @@
      -I
      ../../src
      -I
-     ../../src/.landmark.objs/byte
-     %{lib:landmarks:landmark.cma}
+     ../../src/.landmarks.objs/byte
+     %{lib:landmarks:landmarks.cma}
      -ppx
      "%{ppx} --as-ppx"
      test.ml)))))
