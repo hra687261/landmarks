@@ -36,11 +36,6 @@ type t = {
   mutable registered: bool;
 }
 
-let export_ref: (t -> string -> Graph.graph) ref =
-  ref (fun _ -> failwith "uninitialized function \"export_ref\"")
-let stop_profiling_ref: (t -> unit) ref =
-  ref (fun _ -> failwith "uninitialized function \"stop_profiling_ref\"")
-
 let init_nodes () = {
   node_id_ref = 0;
   allocated_nodes = [];
@@ -51,7 +46,7 @@ let get_incr_node_id_ref st =
   st.nodes.node_id_ref <- id + 1;
   id
 
-let init ~reset_state ~new_node =
+let init ~reset_state ~new_node ~stop_profiling ~export =
   let init_state () =
     let rec landmark_root = {
       kind = Graph.Root;
@@ -121,8 +116,8 @@ let init ~reset_state ~new_node =
     let st = Domain.DLS.get state in
     if not st.registered && not (Domain.is_main_domain ()) then (
       Domain.at_exit (fun () ->
-          !stop_profiling_ref st;
-          st.graph <- !export_ref st ""
+          stop_profiling st;
+          st.graph <- export st ""
         );
       st.registered <- true;
     );
@@ -187,7 +182,7 @@ let rec merge_child_state_graphs ~merge state =
   List.iter (
     fun st ->
       merge_child_state_graphs ~merge st;
-      merge state.current_root_node st.graph
+      merge st state.current_root_node st.graph
   ) state.child_states
 
 let export ~export ~merge ?(label = "") state =

@@ -11,10 +11,13 @@ type landmark
 val landmark_of_landmark_body: t -> landmark_body -> landmark
 val get_ds_landmark: t -> landmark -> landmark_body
 
-val export_ref: (t -> string -> Graph.graph) ref
-val stop_profiling_ref: (t -> unit) ref
-
-val init: reset_state:(t -> unit) -> new_node:(t -> landmark_body -> node) -> (unit -> t)
+val init:
+  reset_state:(t -> unit) ->
+  new_node:(t -> landmark_body -> node) ->
+  stop_profiling:(t -> unit) ->
+  export:(t -> string -> Graph.graph) ->
+  unit ->
+  t
 
 val dummy_landmark : t -> landmark
 val landmark_root : t -> landmark_body
@@ -44,5 +47,6 @@ val get_profiling_stack :
 
 val clear_cache : ((landmark -> unit) -> unit) -> t -> unit
 val export :
-  export:(t -> string -> Graph.graph) -> merge:(node -> Graph.graph -> unit) ->
+  export:(t -> string -> Graph.graph) ->
+  merge:(t -> node -> Graph.graph -> unit) ->
   ?label:string -> t -> Graph.graph
