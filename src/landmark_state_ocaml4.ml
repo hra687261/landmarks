@@ -12,11 +12,6 @@ type t = unit
 
 let landmark_of_landmark_body () l = l
 
-let export_ref: (t -> string -> Graph.graph) ref =
-  ref (fun _ -> failwith "uninitialized function \"export_ref\"")
-let stop_profiling_ref: (t -> unit) ref =
-  ref (fun _ -> failwith "uninitialized function \"stop_profiling_ref\"")
-
 let rec landmark_root = {
   kind = Graph.Root;
   id = 0;
@@ -74,7 +69,7 @@ let get_incr_node_id_ref () =
 let current_root_node = ref (dummy_node ())
 let current_node_ref = ref !current_root_node
 
-let init ~reset_state:_ ~new_node =
+let init ~reset_state:_ ~new_node ~stop_profiling:_ ~export:_ =
   current_root_node := new_node () (landmark_root ());
   current_node_ref := !current_root_node;
   fun () -> ()

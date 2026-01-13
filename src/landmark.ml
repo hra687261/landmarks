@@ -67,53 +67,6 @@ let landmarks_of_key = W.create 17
 let iter_registered_landmarks f =
   W.iter (fun {landmark; _} -> f landmark) landmarks_of_key
 
-let stamp_root current_root_node =
-  current_root_node.timestamp <- (clock ());
-  if !profile_with_allocated_bytes then begin
-    current_root_node.floats.allocated_bytes <- allocated_bytes ();
-    current_root_node.floats.allocated_bytes_major <- allocated_bytes_major ()
-  end;
-  if !profile_with_sys_time then
-    current_root_node.floats.sys_time <- Sys.time ()
-
-let reset_state st =
-  if !profile_with_debug then
-    Printf.eprintf "[Profiling] resetting ...\n%!";
-  let current_root_node = get_current_root_node st in
-  let floats = current_root_node.floats in
-  floats.time <- 0.0;
-  floats.allocated_bytes <- 0;
-  floats.sys_time <- 0.0;
-  current_root_node.calls <- 0;
-  current_root_node.recursive_calls <- 0;
-  stamp_root current_root_node;
-  SparseArray.reset current_root_node.children;
-  set_allocated_nodes st [current_root_node];
-  set_current_node_ref st current_root_node;
-  set_cache_miss_ref st 0;
-  clear_cache iter_registered_landmarks st;
-  set_node_id_ref st 1
-
-let new_node st landmark =
-  if !profile_with_debug then
-    Printf.eprintf "[Profiling] Allocating new node for %s...\n%!" landmark.name;
-  let id = get_incr_node_id_ref st in
-  let node = {
-    landmark;
-    id;
-
-    fathers = Stack.make Array (dummy_node st) 1;
-    distrib = Stack.make Float 0.0 0;
-    children = SparseArray.make (dummy_node st) 7;
-
-    calls = 0;
-    recursive_calls = 0;
-    timestamp = Int64.zero;
-    floats = new_floats ();
-  } in
-  set_allocated_nodes st (node :: get_allocated_nodes st);
-  node
-
 let dummy_key st =
   { key = ""; landmark = dummy_landmark st}
 
@@ -141,6 +94,26 @@ let new_landmark st ~key ~name ~location ~kind () =
   in
   W.add landmarks_of_key { key; landmark = res };
   res
+
+let new_node st landmark =
+  if !profile_with_debug then
+    Printf.eprintf "[Profiling] Allocating new node for %s...\n%!" landmark.name;
+  let id = get_incr_node_id_ref st in
+  let node = {
+    landmark;
+    id;
+
+    fathers = Stack.make Array (dummy_node st) 1;
+    distrib = Stack.make Float 0.0 0;
+    children = SparseArray.make (dummy_node st) 7;
+
+    calls = 0;
+    recursive_calls = 0;
+    timestamp = Int64.zero;
+    floats = new_floats ();
+  } in
+  set_allocated_nodes st (node :: get_allocated_nodes st);
+  node
 
 let landmark_of_node st ({landmark_id = key; name; location; kind; _} : Graph.node) =
   match landmark_of_id st key with
@@ -180,6 +153,34 @@ let register_generic st ?id ?location kind name =
     | None -> name^"-"^location
   in
   register_generic st ~id ~location kind name
+
+let stamp_root current_root_node =
+  current_root_node.timestamp <- (clock ());
+  if !profile_with_allocated_bytes then begin
+    current_root_node.floats.allocated_bytes <- allocated_bytes ();
+    current_root_node.floats.allocated_bytes_major <- allocated_bytes_major ()
+  end;
+  if !profile_with_sys_time then
+    current_root_node.floats.sys_time <- Sys.time ()
+
+let reset_state st =
+  if !profile_with_debug then
+    Printf.eprintf "[Profiling] resetting ...\n%!";
+  let current_root_node = get_current_root_node st in
+  let floats = current_root_node.floats in
+  floats.time <- 0.0;
+  floats.allocated_bytes <- 0;
+  floats.sys_time <- 0.0;
+  current_root_node.calls <- 0;
+  current_root_node.recursive_calls <- 0;
+  stamp_root current_root_node;
+  SparseArray.reset current_root_node.children;
+  set_allocated_nodes st [current_root_node];
+  set_current_node_ref st current_root_node;
+  set_cache_miss_ref st 0;
+  clear_cache iter_registered_landmarks st;
+  set_node_id_ref st 1
+
 
 let push_profiling_state st =
   if !profile_with_debug then
@@ -450,7 +451,6 @@ let stop_profiling_st st =
   if !profile_with_debug then
     Printf.eprintf "[Profiling] Stop profiling.\n%!";
   set_profiling st false
-
 
 (** EXPORTING / IMPORTING SLAVE PROFILINGS **)
 
