@@ -53,8 +53,6 @@ let profile_output = ref Silent
 let profile_format = ref (Textual {threshold = 1.0})
 let profile_recursive = ref false
 
-let profiling () = profiling (get_state ())
-
 (** REGISTERING **)
 
 let last_landmark_id = ref 1
@@ -65,6 +63,61 @@ module W = Weak.Make(struct
   end)
 
 let landmarks_of_key = W.create 17
+
+let iter_registered_landmarks f =
+  W.iter (fun {landmark; _} -> f landmark) landmarks_of_key
+
+let stamp_root current_root_node =
+  current_root_node.timestamp <- (clock ());
+  if !profile_with_allocated_bytes then begin
+    current_root_node.floats.allocated_bytes <- allocated_bytes ();
+    current_root_node.floats.allocated_bytes_major <- allocated_bytes_major ()
+  end;
+  if !profile_with_sys_time then
+    current_root_node.floats.sys_time <- Sys.time ()
+
+let reset_state st =
+  if !profile_with_debug then
+    Printf.eprintf "[Profiling] resetting ...\n%!";
+  let current_root_node = get_current_root_node st in
+  let floats = current_root_node.floats in
+  floats.time <- 0.0;
+  floats.allocated_bytes <- 0;
+  floats.sys_time <- 0.0;
+  current_root_node.calls <- 0;
+  current_root_node.recursive_calls <- 0;
+  stamp_root current_root_node;
+  SparseArray.reset current_root_node.children;
+  set_allocated_nodes st [current_root_node];
+  set_current_node_ref st current_root_node;
+  set_cache_miss_ref st 0;
+  clear_cache iter_registered_landmarks st;
+  set_node_id_ref st 1
+
+let new_node st landmark =
+  if !profile_with_debug then
+    Printf.eprintf "[Profiling] Allocating new node for %s...\n%!" landmark.name;
+  let id = get_incr_node_id_ref st in
+  let node = {
+    landmark;
+    id;
+
+    fathers = Stack.make Array (dummy_node st) 1;
+    distrib = Stack.make Float 0.0 0;
+    children = SparseArray.make (dummy_node st) 7;
+
+    calls = 0;
+    recursive_calls = 0;
+    timestamp = Int64.zero;
+    floats = new_floats ();
+  } in
+  set_allocated_nodes st (node :: get_allocated_nodes st);
+  node
+
+let get_state = init ~reset_state ~new_node
+
+let profiling () = profiling (get_state ())
+
 
 let dummy_key st =
   { key = ""; landmark = dummy_landmark st}
@@ -95,26 +148,6 @@ let new_landmark ~key ~name ~location ~kind () =
   in
   W.add landmarks_of_key { key; landmark = res };
   res
-
-let new_node st landmark =
-  if !profile_with_debug then
-    Printf.eprintf "[Profiling] Allocating new node for %s...\n%!" landmark.name;
-  let id = get_incr_node_id_ref st in
-  let node = {
-    landmark;
-    id;
-
-    fathers = Stack.make Array (dummy_node st) 1;
-    distrib = Stack.make Float 0.0 0;
-    children = SparseArray.make (dummy_node st) 7;
-
-    calls = 0;
-    recursive_calls = 0;
-    timestamp = Int64.zero;
-    floats = new_floats ();
-  } in
-  set_allocated_nodes st (node :: get_allocated_nodes st);
-  node
 
 let landmark_of_node ({landmark_id = key; name; location; kind; _} : Graph.node) =
   match landmark_of_id key with
@@ -162,34 +195,7 @@ let register_counter name = register_generic Graph.Counter name
 
 let register_sampler name = register_generic Graph.Sampler name
 
-let stamp_root current_root_node =
-  current_root_node.timestamp <- (clock ());
-  if !profile_with_allocated_bytes then begin
-    current_root_node.floats.allocated_bytes <- allocated_bytes ();
-    current_root_node.floats.allocated_bytes_major <- allocated_bytes_major ()
-  end;
-  if !profile_with_sys_time then
-    current_root_node.floats.sys_time <- Sys.time ()
-
-let reset_st st =
-  if !profile_with_debug then
-    Printf.eprintf "[Profiling] resetting ...\n%!";
-  let current_root_node = get_current_root_node st in
-  let floats = current_root_node.floats in
-  floats.time <- 0.0;
-  floats.allocated_bytes <- 0;
-  floats.sys_time <- 0.0;
-  current_root_node.calls <- 0;
-  current_root_node.recursive_calls <- 0;
-  stamp_root current_root_node;
-  SparseArray.reset current_root_node.children;
-  set_allocated_nodes st [current_root_node];
-  set_current_node_ref st current_root_node;
-  set_cache_miss_ref st 0;
-  clear_cache st;
-  set_node_id_ref st 1
-
-let reset () = reset_st (get_state ())
+let reset () = reset_state (get_state ())
 
 let push_profiling_state () =
   if !profile_with_debug then
@@ -208,13 +214,13 @@ let push_profiling_state () =
       cache_miss = get_cache_miss_ref st;
     }
   in
-  (* clear_cache st; *)
+  clear_cache iter_registered_landmarks st;
   set_current_root_node st (new_node st (landmark_root st));
   set_current_node_ref st (get_current_root_node st);
   set_cache_miss_ref st 0;
   set_allocated_nodes st [get_current_root_node st];
   set_node_id_ref st 1;
-  (* reset (); *)
+  reset ();
   Stack.push (get_profiling_stack st) profiling_state
 
 let pop_profiling_state () =
@@ -240,7 +246,7 @@ let landmark_failure msg =
   let st = get_state () in
   unroll_until st (get_current_root_node st);
   if get_current_node_ref st != get_current_root_node st then
-    reset_st st;
+    reset_state st;
   if !profile_with_debug then
     (Printf.eprintf "Landmark error: %s\n%!" msg; Stdlib.exit 2)
   else
@@ -333,7 +339,7 @@ let mismatch_recovering st (landmark: landmark_body) (current_node: node) =
     unroll_until st landmark.last_self;
     let current_node = get_current_node_ref st in
     if landmark != current_node.landmark then begin
-      reset_st st;
+      reset_state st;
       failwith ("unable to recover from "^msg)
     end
   end
@@ -557,14 +563,14 @@ let export_and_reset ?(label = "") () =
   let profiling = profiling () in
   if profiling then
     stop_profiling_st st;
-  let res = export ~merge:merge_aux ~label st in
-  reset_st st;
+  let res = export ~export:export_aux ~merge:merge_aux ~label st in
+  reset_state st;
   if profiling then
     stop_profiling_st st;
   res
 
 let export ?(label = "") () =
-  export ~merge:merge_aux ~label (get_state ())
+  export ~export:export_aux ~merge:merge_aux ~label (get_state ())
 
 let exit_hook () =
   if !profile_with_debug then
@@ -680,9 +686,7 @@ let parse_env_options s =
    output = !output; format = !format; recursive = !recursive}
 
 let () =
-  new_node_ref := new_node;
   export_ref := export_aux;
-  reset_state_ref := reset_st;
   stop_profiling_ref := stop_profiling_st;
   reset ();
   Stdlib.at_exit exit_hook;
