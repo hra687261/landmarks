@@ -28,6 +28,7 @@ struct
   module Stack = T.Stack
 
   type t = {
+    is_from_main_domain: bool;
     landmark_root: landmark;
     dummy_node : node;
 
@@ -36,7 +37,7 @@ struct
     mutable profiling_ref : bool;
     mutable cache_miss_ref: int;
     profiling_stack: (profiling_state, profiling_state array) Stack.t;
-    landmarks_of_key: W.t;
+    local_landmark_store: (string, landmark_key) Hashtbl.t;
 
     mutable current_root_node : node;
     mutable current_node_ref : node;
@@ -52,18 +53,11 @@ struct
     st.node_id_ref <- id + 1;
     id
 
-  let clone_landmarks_of_key dummy_node w =
-    let new_w = W.create (W.count w) in
-    W.iter (
-      fun landmark ->
-        W.add new_w (clone_landmark_key dummy_node landmark)
-    ) w;
-    new_w
-
   let init ~reset_state ~new_node ~stop_profiling =
     let init_state () =
       let dummy_node, landmark_root = init_landmark_root () in
       let st = {
+        is_from_main_domain = true;
         landmark_root;
         dummy_node;
         node_id_ref = 0;
@@ -71,7 +65,7 @@ struct
         profiling_ref = false;
         cache_miss_ref = 0;
         profiling_stack = mk_profiling_stack (dummy_profiling_state dummy_node);
-        landmarks_of_key = landmarks_of_key;
+        local_landmark_store = Hashtbl.create 0;
         child_states = [];
         registered = false;
         (* Temporary *)
@@ -86,12 +80,10 @@ struct
       Domain.DLS.new_key
         ~split_from_parent:(fun s ->
             let child_state = init_state () in
-            let child_state =
-              { child_state with
-                profiling_ref = s.profiling_ref;
-                landmarks_of_key =
-                  clone_landmarks_of_key child_state.dummy_node s.landmarks_of_key
-              }
+            let child_state = {
+              child_state with
+              profiling_ref = s.profiling_ref;
+              is_from_main_domain = false }
             in
             s.child_states <- child_state :: s.child_states;
             reset_state child_state;
@@ -114,46 +106,46 @@ struct
   let landmarks_of_key_mutex = Mutex.create ()
 
   let landmark_of_id st key =
-    let lk_opt =
-      Mutex.protect landmarks_of_key_mutex (fun () ->
-          W.find_opt st.landmarks_of_key (mk_landmark_key key st.landmark_root)
-        )
-    in
-    match lk_opt with
-    | None -> None
-    | Some lk -> Some (landmark_of_landmark_key lk)
+    Mutex.protect landmarks_of_key_mutex (fun () ->
+        match W.find_opt landmarks_of_key (mk_landmark_key key st.landmark_root) with
+        | None -> None
+        | Some lk -> Some (landmark_of_landmark_key lk)
+      )
 
   let find_or_add_landmark st key mk =
     Mutex.protect landmarks_of_key_mutex (fun () ->
-        match
-          W.find_opt st.landmarks_of_key (mk_landmark_key key st.landmark_root)
-        with
+        match W.find_opt landmarks_of_key (mk_landmark_key key st.landmark_root) with
         | Some lk -> landmark_of_landmark_key lk
         | None ->
-            let new_landmark = mk ~key () in
-            let lk = mk_landmark_key key new_landmark in
-            W.add st.landmarks_of_key lk;
-            new_landmark
+            if not st.is_from_main_domain then
+              failwith "Child domains cannot register new landmarks";
+            let new_lm = mk ~key () in
+            let lk = mk_landmark_key key new_lm in
+            W.add landmarks_of_key lk;
+            new_lm
       )
 
   let landmark_root st = st.landmark_root
   let dummy_node st = st.dummy_node
 
   let get_ds_landmark st lm =
-    if Domain.is_main_domain () then lm else
+    if st.is_from_main_domain then lm else
       let key = key_of_landmark lm in
-      let lm_key = mk_landmark_key key st.landmark_root in
-      match W.find_opt st.landmarks_of_key lm_key with
+      match Hashtbl.find_opt st.local_landmark_store key with
       | Some lk -> landmark_of_landmark_key lk
       | None ->
-          let new_lm_key =
-            clone_landmark_key st.dummy_node (mk_landmark_key key lm)
-          in
-          W.add st.landmarks_of_key new_lm_key;
-          landmark_of_landmark_key new_lm_key
+          let new_lk = clone_landmark_key st.dummy_node (mk_landmark_key key lm) in
+          Hashtbl.add st.local_landmark_store key new_lk;
+          landmark_of_landmark_key new_lk
 
   let clear_cache st: unit =
-    W.iter (clear_landmark_key st.dummy_node) st.landmarks_of_key
+    if st.is_from_main_domain then
+      Mutex.protect landmarks_of_key_mutex (fun () ->
+          W.iter (clear_landmark_key st.dummy_node) landmarks_of_key
+        )
+    else
+      Hashtbl.iter (fun _ lk -> clear_landmark_key st.dummy_node lk)
+        st.local_landmark_store
 
   let profiling st = st.profiling_ref
   let set_profiling st b = st.profiling_ref <- b

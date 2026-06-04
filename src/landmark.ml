@@ -385,19 +385,15 @@ let landmark_of_node st ({landmark_id = key; name; location; kind; _} : Graph.no
        new_landmark ~dummy_node:(dummy_node st) ~key ~name ~kind ~location ()
     )
 
-let register_generic st ~id ~name ~location ~kind () =
-  let landmark =
-    new_landmark ~dummy_node:(dummy_node st) ~key:id ~name ~location ~kind ()
-  in
-  if !profile_with_debug then
-    Printf.eprintf "[Profiling] registering(%s)\n%!" name;
-  landmark
-
-
 let register_generic st ~id ~location kind name =
   find_or_add_landmark st id
     (fun ~key () ->
-       register_generic st ~id:key ~name ~location ~kind ()
+       if !profile_with_debug then
+         Printf.eprintf "[Profiling] registering(%s)\n%!" name;
+       let landmark =
+         new_landmark ~dummy_node:(dummy_node st) ~key ~name ~location ~kind ()
+       in
+       landmark
     )
 
 let register_generic st ?id ?location kind name =
