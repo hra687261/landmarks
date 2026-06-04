@@ -12,6 +12,7 @@ module Make(T: sig
       type ('a, 'arr) t
     end
 
+    val landmark_key_of_landmark: landmark -> landmark_key
     val mk_landmark_key: string -> landmark -> landmark_key
     val landmark_of_landmark_key: landmark_key -> landmark
     val landmarks_of_key: W.t
@@ -50,7 +51,7 @@ struct
     match landmark_of_id () id with
     | None ->
         let lm: landmark = mk ~key:id () in
-        add_landmark () (mk_landmark_key id lm);
+        add_landmark () (landmark_key_of_landmark lm);
         lm
     | Some lm -> lm
 

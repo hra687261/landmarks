@@ -162,9 +162,11 @@ module Stack = struct
   let to_floatarray {data; size; _} = Float.Array.sub data 0 size
 end
 
+type landmark_id = { id: int }
+
 type landmark = {
-  id: int;
-  key: string;
+  id: landmark_id;
+  key: landmark_key;
   kind : Graph.kind;
   name: string;
   location: string;
@@ -274,6 +276,7 @@ let landmarks_of_key = W.create 17
 module State = Landmark_state.Make(
   struct
     type nonrec landmark = landmark
+    type nonrec landmark_id = landmark_id
     type nonrec node = node
     type nonrec profiling_state = profiling_state
     type nonrec landmark_key = landmark_key
@@ -282,7 +285,8 @@ module State = Landmark_state.Make(
     module Stack = Stack
 
     let landmark_id ({id; _}: landmark) =  id
-    let key_of_landmark ({key; _}: landmark) =  key
+    let landmark_id_to_int ({id; _}: landmark_id) =  id
+    let landmark_key_of_landmark ({key; _}: landmark) = key
     let mk_landmark_key key landmark = { key; landmark }
     let landmark_of_landmark_key { key = _; landmark } = landmark
 
@@ -291,14 +295,15 @@ module State = Landmark_state.Make(
     let init_landmark_root () =
       let rec landmark_root = {
         kind = Graph.Root;
-        id = 0;
+        id = { id = 0 };
         name = "ROOT";
         location = __FILE__;
-        key = "";
+        key = root_lm_key;
         last_parent = dummy_node;
         last_son = dummy_node;
         last_self = dummy_node;
       }
+      and root_lm_key = { key = ""; landmark = landmark_root }
       and dummy_node = {
         landmark = landmark_root;
         id = 0;
@@ -320,20 +325,20 @@ module State = Landmark_state.Make(
       landmark.last_parent <- dummy_node;
       landmark.last_self <- dummy_node
 
-    let clone_landmark_key dummy_node
-        { landmark = { kind; id; name; location; key = lk;  _ }; key; } = {
-      landmark = {
-        kind;
-        id;
-        name;
-        location;
-        key = lk;
+    let clone_landmark_key dummy_node { landmark = orig; key = outer_key } =
+      let rec cloned_lm = {
+        kind = orig.kind;
+        id = orig.id;
+        name = orig.name;
+        location = orig.location;
+        key = cloned_lk;
         last_parent = dummy_node;
         last_son = dummy_node;
         last_self = dummy_node;
-      };
-      key
-    }
+      }
+      and cloned_lk = { key = outer_key; landmark = cloned_lm }
+      in
+      cloned_lk
 
     let mk_profiling_stack dummy =
       Stack.make Array dummy 7
@@ -346,18 +351,19 @@ open State
 let new_landmark ~dummy_node ~key ~name ~location ~kind () =
   let id = !last_landmark_id in
   incr last_landmark_id;
-  let res = {
-    id;
+  let rec lm = {
+    id = { id };
     name;
     location;
     kind;
-    key;
+    key = lm_key;
     last_parent = dummy_node;
     last_self = dummy_node;
     last_son = dummy_node;
   }
+  and lm_key = { key; landmark = lm }
   in
-  res
+  lm
 
 let new_node st landmark =
   if !profile_with_debug then
@@ -500,7 +506,7 @@ let landmark_failure st msg =
   else
     raise (LandmarkFailure msg)
 
-let get_entering_node st ({ id; _ } as landmark: landmark) =
+let get_entering_node st ({ id = { id }; _ } as landmark: landmark) =
   let current_node = get_current_node_ref st in
   (* Read the "cache". *)
   if current_node == landmark.last_parent && landmark.last_son != dummy_node st then
@@ -730,7 +736,7 @@ let array_list_map f l =
 
 let export_aux st label =
   let export_node {landmark; id; calls; floats; children; distrib; _} =
-    let {key = landmark_id; name; location; kind; _} = landmark in
+    let {key = {key = landmark_id; _}; name; location; kind; _} = landmark in
     let {time; allocated_bytes; allocated_bytes_major; sys_time; _} = floats in
     let children =
       List.map (fun ({id;_} : node) -> id) (SparseArray.values children)
@@ -761,7 +767,7 @@ let rec merge_branch st (node:node) graph (imported : Graph.node) =
     (fun (imported_son : Graph.node) ->
        let landmark = landmark_of_node st imported_son in
        let landmark = get_ds_landmark st landmark in
-       match SparseArray.get node.children landmark.id with
+       match SparseArray.get node.children landmark.id.id with
        | exception Not_found ->
            new_branch st node graph imported_son
        | son -> merge_branch st son graph imported_son
@@ -777,7 +783,7 @@ and new_branch st parent graph (imported : Graph.node) =
   floats.allocated_bytes <- imported.allocated_bytes;
   floats.sys_time <- imported.sys_time;
   Float.Array.iter (Stack.push node.distrib) imported.distrib;
-  SparseArray.set parent.children landmark.id node;
+  SparseArray.set parent.children landmark.id.id node;
   List.iter (new_branch st node graph) (Graph.children graph imported)
 
 let merge_aux st node graph =

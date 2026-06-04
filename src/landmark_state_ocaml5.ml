@@ -4,6 +4,7 @@
 
 module Make(T: sig
     type landmark
+    type landmark_id
     type node
     type profiling_state
     type landmark_key
@@ -12,8 +13,9 @@ module Make(T: sig
       type ('a, 'arr) t
     end
 
-    val landmark_id: landmark ->  int
-    val key_of_landmark: landmark ->  string
+    val landmark_id: landmark -> landmark_id
+    val landmark_id_to_int: landmark_id -> int
+    val landmark_key_of_landmark: landmark -> landmark_key
     val mk_landmark_key: string -> landmark -> landmark_key
     val landmark_of_landmark_key: landmark_key -> landmark
     val landmarks_of_key: W.t
@@ -28,6 +30,12 @@ struct
 
   module Stack = T.Stack
 
+  module EphStore = Ephemeron.K1.Make(struct
+      type t = landmark
+      let equal = (==)
+      let hash lm = landmark_id_to_int (landmark_id lm)
+    end)
+
   type t = {
     is_from_main_domain: bool;
     landmark_root: landmark;
@@ -38,7 +46,7 @@ struct
     mutable profiling_ref : bool;
     mutable cache_miss_ref: int;
     profiling_stack: (profiling_state, profiling_state array) Stack.t;
-    local_landmark_store: (int, landmark_key) Hashtbl.t;
+    local_landmark_store: landmark_key EphStore.t;
 
     mutable current_root_node : node;
     mutable current_node_ref : node;
@@ -66,7 +74,7 @@ struct
         profiling_ref = false;
         cache_miss_ref = 0;
         profiling_stack = mk_profiling_stack (dummy_profiling_state dummy_node);
-        local_landmark_store = Hashtbl.create 0;
+        local_landmark_store = EphStore.create 0;
         child_states = [];
         registered = false;
         (* Temporary *)
@@ -121,8 +129,7 @@ struct
             if not st.is_from_main_domain then
               failwith "Child domains cannot register new landmarks";
             let new_lm = mk ~key () in
-            let lk = mk_landmark_key key new_lm in
-            W.add landmarks_of_key lk;
+            W.add landmarks_of_key (landmark_key_of_landmark new_lm);
             new_lm
       )
 
@@ -131,13 +138,11 @@ struct
 
   let get_ds_landmark st lm =
     if st.is_from_main_domain then lm else
-      let id = landmark_id lm in
-      match Hashtbl.find_opt st.local_landmark_store id with
+      match EphStore.find_opt st.local_landmark_store lm with
       | Some lk -> landmark_of_landmark_key lk
       | None ->
-          let lk = mk_landmark_key (key_of_landmark lm) lm in
-          let new_lk = clone_landmark_key st.dummy_node lk in
-          Hashtbl.add st.local_landmark_store id new_lk;
+          let new_lk = clone_landmark_key st.dummy_node (landmark_key_of_landmark lm) in
+          EphStore.add st.local_landmark_store lm new_lk;
           landmark_of_landmark_key new_lk
 
   let clear_cache st: unit =
@@ -146,8 +151,7 @@ struct
           W.iter (clear_landmark_key st.dummy_node) landmarks_of_key
         )
     else
-      Hashtbl.iter (fun _ lk -> clear_landmark_key st.dummy_node lk)
-        st.local_landmark_store
+      EphStore.clear st.local_landmark_store
 
   let profiling st = st.profiling_ref
   let set_profiling st b = st.profiling_ref <- b

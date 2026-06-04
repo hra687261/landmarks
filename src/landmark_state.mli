@@ -4,6 +4,7 @@
 
 module Make(T: sig
     type landmark
+    type landmark_id
     type node
     type profiling_state
     type landmark_key
@@ -13,8 +14,9 @@ module Make(T: sig
       type ('a, 'arr) t
     end
 
-    val landmark_id: landmark ->  int
-    val key_of_landmark: landmark ->  string
+    val landmark_id: landmark -> landmark_id
+    val landmark_id_to_int: landmark_id -> int
+    val landmark_key_of_landmark: landmark -> landmark_key
     val mk_landmark_key: string -> landmark -> landmark_key
     val landmark_of_landmark_key: landmark_key -> landmark
     val landmarks_of_key: W.t
