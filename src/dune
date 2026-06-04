@@ -1,7 +1,7 @@
 (library
  (name landmark)
  (public_name landmarks)
- (modules landmark landmark_state graph misc utils)
+ (modules landmark landmark_state graph misc)
  (no_dynlink)
  (flags
   (:standard -w +A-30-42-41-40-4-70 -safe-string -strict-sequence))
