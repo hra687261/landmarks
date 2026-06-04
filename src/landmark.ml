@@ -790,7 +790,6 @@ let merge_aux st node graph =
 
 let get_state =
   init ~reset_state ~new_node ~stop_profiling:stop_profiling_st
-    ~export:export_aux
 
 let register ?id ?location name =
   register_generic ?id ?location (get_state ()) Graph.Normal name

@@ -48,8 +48,6 @@ struct
 
     mutable child_states : t list;
     (* The states of child domains spawned by the main one *)
-    mutable graph: Graph.graph;
-    (* Used by child states to store their own graphs *)
 
     mutable registered: bool;
   }
@@ -72,7 +70,7 @@ struct
     ) w;
     new_w
 
-  let init ~reset_state ~new_node ~stop_profiling ~export =
+  let init ~reset_state ~new_node ~stop_profiling =
     let init_state () =
       let dummy_node, landmark_root = init_landmark_root () in
       let nodes = init_nodes () in
@@ -85,7 +83,6 @@ struct
         profiling_stack = mk_profiling_stack (dummy_profiling_state dummy_node);
         landmarks_of_key = landmarks_of_key;
         child_states = [];
-        graph = {nodes = [||]; label = ""; root = 0 };
         registered = false;
         (* Temprory *)
         current_root_node = dummy_node;
@@ -115,11 +112,12 @@ struct
     in
     fun () ->
       let st = Domain.DLS.get state in
-      if not st.registered && not (Domain.is_main_domain ()) then (
-        Domain.at_exit (fun () ->
-            stop_profiling st;
-            st.graph <- export st ""
-          );
+      if not st.registered then (
+        if not (Domain.is_main_domain ()) then
+          Domain.at_exit (fun () ->
+              if st.profiling_ref then
+                stop_profiling st;
+            );
         st.registered <- true;
       );
       st
@@ -196,18 +194,16 @@ struct
   let incr_cache_miss_ref st = st.cache_miss_ref <- st.cache_miss_ref + 1
   let get_profiling_stack st = st.profiling_stack
 
-  let rec merge_child_state_graphs ~merge state =
+  let rec merge_child_state_graphs ~export ~merge state =
     List.iter (
       fun st ->
-        merge_child_state_graphs ~merge st;
-        merge st state.current_root_node st.graph
+        merge_child_state_graphs ~export ~merge st;
+        merge state state.current_root_node (export st "")
     ) state.child_states
 
   let export ~export ~merge ?(label = "") state =
-    merge_child_state_graphs ~merge state;
+    merge_child_state_graphs ~export ~merge state;
     export state label
 
 
 end
-
-

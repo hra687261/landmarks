@@ -75,7 +75,7 @@ struct
   let current_root_node = ref (dummy_node ())
   let current_node_ref = ref !current_root_node
 
-  let init ~reset_state:_ ~new_node ~stop_profiling:_ ~export:_ =
+  let init ~reset_state:_ ~new_node ~stop_profiling:_ =
     current_root_node := new_node () (landmark_root ());
     current_node_ref := !current_root_node;
     fun () -> ()

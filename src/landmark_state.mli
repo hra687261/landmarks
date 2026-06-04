@@ -41,7 +41,6 @@ sig
     reset_state:(t -> unit) ->
     new_node:(t -> T.landmark -> T.node) ->
     stop_profiling:(t -> unit) ->
-    export:(t -> string -> Graph.graph) ->
     unit ->
     t
 
