@@ -8,6 +8,7 @@ module Make(T: sig
     type node
     type profiling_state
     type landmark_key
+
     module W: Weak.S with type data = landmark_key
     module Stack: sig
       type ('a, 'arr) t
@@ -45,7 +46,7 @@ struct
     landmark_root: landmark;
     dummy_node : node;
 
-    mutable node_id_ref: int;
+    node_id_ref: int Atomic.t;
     mutable allocated_nodes: node list;
     mutable profiling_ref : bool;
     mutable cache_miss_ref: int;
@@ -62,11 +63,7 @@ struct
   }
 
   let get_incr_node_id_ref st =
-    let id = st.node_id_ref in
-    st.node_id_ref <- id + 1;
-    id
-
-  let new_node_mutex = Mutex.create ()
+    Atomic.fetch_and_add st.node_id_ref 1
 
   let init ~reset_state ~new_node ~stop_profiling =
     let init_state () =
@@ -74,7 +71,7 @@ struct
       let st = {
         landmark_root;
         dummy_node;
-        node_id_ref = 0;
+        node_id_ref = Atomic.make 0;
         allocated_nodes = [];
         profiling_ref = false;
         cache_miss_ref = 0;
@@ -87,9 +84,7 @@ struct
         current_node_ref = dummy_node;
       }
       in
-      let root_node =
-        Mutex.protect new_node_mutex (fun () -> new_node st landmark_root)
-      in
+      let root_node = new_node st landmark_root in
       { st with current_root_node = root_node; current_node_ref = root_node }
     in
     let state =
@@ -168,8 +163,8 @@ struct
   let profiling st = st.profiling_ref
   let set_profiling st b = st.profiling_ref <- b
 
-  let get_node_id_ref st = st.node_id_ref
-  let set_node_id_ref st n = st.node_id_ref <- n
+  let get_node_id_ref st = Atomic.get st.node_id_ref
+  let set_node_id_ref st n = Atomic.set st.node_id_ref n
   let get_allocated_nodes st = st.allocated_nodes
   let set_allocated_nodes st l = st.allocated_nodes <- l
 
