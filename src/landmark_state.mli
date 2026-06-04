@@ -13,6 +13,7 @@ module Make(T: sig
       type ('a, 'arr) t
     end
 
+    val landmark_id: landmark ->  int
     val key_of_landmark: landmark ->  string
     val mk_landmark_key: string -> landmark -> landmark_key
     val landmark_of_landmark_key: landmark_key -> landmark

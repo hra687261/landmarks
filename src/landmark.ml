@@ -281,6 +281,7 @@ module State = Landmark_state.Make(
     module W = W
     module Stack = Stack
 
+    let landmark_id ({id; _}: landmark) =  id
     let key_of_landmark ({key; _}: landmark) =  key
     let mk_landmark_key key landmark = { key; landmark }
     let landmark_of_landmark_key { key = _; landmark } = landmark

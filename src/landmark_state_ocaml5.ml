@@ -12,6 +12,7 @@ module Make(T: sig
       type ('a, 'arr) t
     end
 
+    val landmark_id: landmark ->  int
     val key_of_landmark: landmark ->  string
     val mk_landmark_key: string -> landmark -> landmark_key
     val landmark_of_landmark_key: landmark_key -> landmark
@@ -37,7 +38,7 @@ struct
     mutable profiling_ref : bool;
     mutable cache_miss_ref: int;
     profiling_stack: (profiling_state, profiling_state array) Stack.t;
-    local_landmark_store: (string, landmark_key) Hashtbl.t;
+    local_landmark_store: (int, landmark_key) Hashtbl.t;
 
     mutable current_root_node : node;
     mutable current_node_ref : node;
@@ -130,12 +131,13 @@ struct
 
   let get_ds_landmark st lm =
     if st.is_from_main_domain then lm else
-      let key = key_of_landmark lm in
-      match Hashtbl.find_opt st.local_landmark_store key with
+      let id = landmark_id lm in
+      match Hashtbl.find_opt st.local_landmark_store id with
       | Some lk -> landmark_of_landmark_key lk
       | None ->
-          let new_lk = clone_landmark_key st.dummy_node (mk_landmark_key key lm) in
-          Hashtbl.add st.local_landmark_store key new_lk;
+          let lk = mk_landmark_key (key_of_landmark lm) lm in
+          let new_lk = clone_landmark_key st.dummy_node lk in
+          Hashtbl.add st.local_landmark_store id new_lk;
           landmark_of_landmark_key new_lk
 
   let clear_cache st: unit =
