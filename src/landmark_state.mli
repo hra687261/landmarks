@@ -29,7 +29,6 @@ sig
 
   val get_ds_landmark: t -> T.landmark -> T.landmark
 
-  val add_landmark: t -> T.landmark_key -> unit
   val landmark_of_id: t -> string -> T.landmark option
   val find_or_add_landmark:
     t ->

@@ -27,17 +27,12 @@ struct
 
   module Stack = T.Stack
 
-  type nodes = {
-    mutable node_id_ref: int;
-    mutable allocated_nodes: node list;
-  }
-
   type t = {
     landmark_root: landmark;
     dummy_node : node;
 
-    nodes: nodes;
-
+    mutable node_id_ref: int;
+    mutable allocated_nodes: node list;
     mutable profiling_ref : bool;
     mutable cache_miss_ref: int;
     profiling_stack: (profiling_state, profiling_state array) Stack.t;
@@ -52,14 +47,9 @@ struct
     mutable registered: bool;
   }
 
-  let init_nodes () = {
-    node_id_ref = 0;
-    allocated_nodes = [];
-  }
-
   let get_incr_node_id_ref st =
-    let id = st.nodes.node_id_ref in
-    st.nodes.node_id_ref <- id + 1;
+    let id = st.node_id_ref in
+    st.node_id_ref <- id + 1;
     id
 
   let clone_landmarks_of_key dummy_node w =
@@ -73,18 +63,18 @@ struct
   let init ~reset_state ~new_node ~stop_profiling =
     let init_state () =
       let dummy_node, landmark_root = init_landmark_root () in
-      let nodes = init_nodes () in
       let st = {
         landmark_root;
         dummy_node;
-        nodes;
+        node_id_ref = 0;
+        allocated_nodes = [];
         profiling_ref = false;
         cache_miss_ref = 0;
         profiling_stack = mk_profiling_stack (dummy_profiling_state dummy_node);
         landmarks_of_key = landmarks_of_key;
         child_states = [];
         registered = false;
-        (* Temprory *)
+        (* Temporary *)
         current_root_node = dummy_node;
         current_node_ref = dummy_node;
       }
@@ -104,7 +94,6 @@ struct
               }
             in
             s.child_states <- child_state :: s.child_states;
-            child_state.profiling_ref <- s.profiling_ref;
             reset_state child_state;
             child_state
           )
@@ -123,13 +112,6 @@ struct
       st
 
   let landmarks_of_key_mutex = Mutex.create ()
-
-  let add_landmark st landmark_key =
-    if not (Domain.is_main_domain ()) then
-      failwith "Child domains cannot register landmarks";
-    Mutex.protect landmarks_of_key_mutex (fun () ->
-        W.add st.landmarks_of_key landmark_key
-      )
 
   let landmark_of_id st key =
     let lk_opt =
@@ -176,10 +158,10 @@ struct
   let profiling st = st.profiling_ref
   let set_profiling st b = st.profiling_ref <- b
 
-  let get_node_id_ref st = st.nodes.node_id_ref
-  let set_node_id_ref st n = st.nodes.node_id_ref <- n
-  let get_allocated_nodes st = st.nodes.allocated_nodes
-  let set_allocated_nodes st l = st.nodes.allocated_nodes <- l
+  let get_node_id_ref st = st.node_id_ref
+  let set_node_id_ref st n = st.node_id_ref <- n
+  let get_allocated_nodes st = st.allocated_nodes
+  let set_allocated_nodes st l = st.allocated_nodes <- l
 
   let get_current_root_node st = st.current_root_node
   let set_current_root_node st (node: node) =
