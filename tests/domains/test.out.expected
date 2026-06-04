@@ -1,0 +1,4 @@
+work calls: 13
+main calls: 1
+Each work call allocates: 65536
+13 * 65536 <= allocated_bytes < 14 * 65536 : true
