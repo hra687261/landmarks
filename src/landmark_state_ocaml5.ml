@@ -30,14 +30,18 @@ struct
 
   module Stack = T.Stack
 
-  module EphStore = Ephemeron.K1.Make(struct
+  (* Domain Local Landmarks *)
+  module DLLandmarks = Ephemeron.K1.Make(struct
       type t = landmark
       let equal = (==)
       let hash lm = landmark_id_to_int (landmark_id lm)
     end)
 
+  type domain_landmarks =
+    | Main_domain
+    | Child_domain of landmark_key DLLandmarks.t
+
   type t = {
-    is_from_main_domain: bool;
     landmark_root: landmark;
     dummy_node : node;
 
@@ -46,7 +50,7 @@ struct
     mutable profiling_ref : bool;
     mutable cache_miss_ref: int;
     profiling_stack: (profiling_state, profiling_state array) Stack.t;
-    local_landmark_store: landmark_key EphStore.t;
+    domain_landmarks: domain_landmarks;
 
     mutable current_root_node : node;
     mutable current_node_ref : node;
@@ -68,7 +72,6 @@ struct
     let init_state () =
       let dummy_node, landmark_root = init_landmark_root () in
       let st = {
-        is_from_main_domain = true;
         landmark_root;
         dummy_node;
         node_id_ref = 0;
@@ -76,7 +79,7 @@ struct
         profiling_ref = false;
         cache_miss_ref = 0;
         profiling_stack = mk_profiling_stack (dummy_profiling_state dummy_node);
-        local_landmark_store = EphStore.create 0;
+        domain_landmarks = Main_domain;
         child_states = [];
         registered = false;
         (* Temporary *)
@@ -96,7 +99,7 @@ struct
             let child_state = {
               child_state with
               profiling_ref = s.profiling_ref;
-              is_from_main_domain = false }
+              domain_landmarks = Child_domain (DLLandmarks.create 17) }
             in
             s.child_states <- child_state :: s.child_states;
             reset_state child_state;
@@ -130,32 +133,37 @@ struct
         match W.find_opt landmarks_of_key (mk_landmark_key key st.landmark_root) with
         | Some lk -> landmark_of_landmark_key lk
         | None ->
-            if not st.is_from_main_domain then
-              failwith "Child domains cannot register new landmarks";
-            let new_lm = mk ~key () in
-            W.add landmarks_of_key (landmark_key_of_landmark new_lm);
-            new_lm
+            match st.domain_landmarks with
+            | Main_domain ->
+                let new_lm = mk ~key () in
+                W.add landmarks_of_key (landmark_key_of_landmark new_lm);
+                new_lm
+            | Child_domain _ ->
+                failwith "Child domains cannot register new landmarks"
       )
 
   let landmark_root st = st.landmark_root
   let dummy_node st = st.dummy_node
 
   let get_ds_landmark st lm =
-    if st.is_from_main_domain then lm else
-      match EphStore.find_opt st.local_landmark_store lm with
-      | Some lk -> landmark_of_landmark_key lk
-      | None ->
-          let new_lk = clone_landmark_key st.dummy_node (landmark_key_of_landmark lm) in
-          EphStore.add st.local_landmark_store lm new_lk;
-          landmark_of_landmark_key new_lk
+    match st.domain_landmarks with
+    | Main_domain -> lm
+    | Child_domain domain_landmarks ->
+        match DLLandmarks.find_opt domain_landmarks lm with
+        | Some lk -> landmark_of_landmark_key lk
+        | None ->
+            let new_lk = clone_landmark_key st.dummy_node (landmark_key_of_landmark lm) in
+            DLLandmarks.add domain_landmarks lm new_lk;
+            landmark_of_landmark_key new_lk
 
   let clear_cache st: unit =
-    if st.is_from_main_domain then
-      Mutex.protect landmarks_of_key_mutex (fun () ->
-          W.iter (clear_landmark_key st.dummy_node) landmarks_of_key
-        )
-    else
-      EphStore.clear st.local_landmark_store
+    match st.domain_landmarks with
+    | Main_domain ->
+        Mutex.protect landmarks_of_key_mutex (fun () ->
+            W.iter (clear_landmark_key st.dummy_node) landmarks_of_key
+          )
+    | Child_domain domain_landmarks ->
+        DLLandmarks.clear domain_landmarks
 
   let profiling st = st.profiling_ref
   let set_profiling st b = st.profiling_ref <- b
