@@ -62,6 +62,8 @@ struct
     st.node_id_ref <- id + 1;
     id
 
+  let new_node_mutex = Mutex.create ()
+
   let init ~reset_state ~new_node ~stop_profiling =
     let init_state () =
       let dummy_node, landmark_root = init_landmark_root () in
@@ -82,7 +84,9 @@ struct
         current_node_ref = dummy_node;
       }
       in
-      let root_node = new_node st landmark_root in
+      let root_node =
+        Mutex.protect new_node_mutex (fun () -> new_node st landmark_root)
+      in
       { st with current_root_node = root_node; current_node_ref = root_node }
     in
     let state =
